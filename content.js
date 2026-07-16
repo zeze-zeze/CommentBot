@@ -28,6 +28,34 @@ function hasApiKey() {
   return !!(k && k.trim());
 }
 
+// 留言篩選：留言內容是否符合設定的篩選條件（不符合則任何模式都不回覆）。
+// 未設定篩選（僅空白）→ 全部通過；無效的 regex → 一律不通過（fail-closed，
+// 避免因篩選失效而在自動送出模式下大量回覆；popup 會即時提示 regex 錯誤）。
+// 只在「判斷是否有設定」時 trim，實際比對用原字串（保留使用者刻意留的頭尾空白）。
+let filterRe = null; // 已編譯的篩選 regex 快取（避免每則留言重編譯）
+let filterReKey = '';
+function passesFilter(text) {
+  const pat = cachedSettings.filterPattern || '';
+  if (!pat.trim()) return true;
+  // 限制比對長度（與送給 AI 的 1500 字一致），降低失控 regex 卡死主執行緒的風險
+  const t = (text || '').slice(0, 1500);
+  if (cachedSettings.filterRegex) {
+    const key = (cachedSettings.filterIgnoreCase ? 'i|' : '|') + pat;
+    if (key !== filterReKey) {
+      filterReKey = key;
+      try {
+        filterRe = new RegExp(pat, cachedSettings.filterIgnoreCase ? 'i' : '');
+      } catch (_) {
+        filterRe = null; // 無效 regex
+      }
+    }
+    return filterRe ? filterRe.test(t) : false; // 無效 → fail-closed（不回覆）
+  }
+  return cachedSettings.filterIgnoreCase
+    ? t.toLowerCase().includes(pat.toLowerCase())
+    : t.includes(pat);
+}
+
 // ---------- 設定：讀取並跟隨變更 ----------
 
 chrome.storage.local.get('settings').then(({ settings }) => {
@@ -38,6 +66,9 @@ chrome.storage.local.get('settings').then(({ settings }) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) {
     cachedSettings = normalizeSettings(changes.settings.newValue);
+    // 篩選條件可能變了 → 清除「暫時性」的篩選略過標記，讓下次掃描重新評估
+    // （已回覆／重試耗盡的 cbCrazy 才是永久性，不清）。
+    document.querySelectorAll('[data-cb-filtered]').forEach((b) => delete b.dataset.cbFiltered);
     scheduleCrazy();
   }
 });
@@ -468,6 +499,11 @@ async function generate(box, btn, status, opts = {}) {
     if (!auto) setStatus(status, comment ? '讀不到留言內容' : '找不到對應的留言', 'err');
     return false;
   }
+  // 留言篩選：不符合條件的留言，任何模式都不回覆
+  if (!passesFilter(comment.text)) {
+    if (!auto) setStatus(status, '留言不符合篩選條件，略過', '');
+    return false;
+  }
   if (!hasApiKey()) {
     if (!auto) setStatus(status, '尚未設定 API Key，請點工具列的擴充功能圖示設定', 'err');
     return false;
@@ -567,8 +603,16 @@ async function runCrazyQueue() {
   try {
     for (const btn of platform.replyButtons()) {
       if (cachedSettings.mode !== 'crazy') break; // 中途改模式就停
-      if (btn.dataset.cbCrazy) continue; // 這個回覆鈕已成功處理
+      if (btn.dataset.cbCrazy) continue; // 已成功處理／重試耗盡（永久略過）
+      if (btn.dataset.cbFiltered) continue; // 本次篩選不符（settings 變更時會清除以重評）
       if (!isVisible(btn)) continue; // 尚未顯示（虛擬捲動）→ 下次掃描再處理
+      // 篩選預檢：由回覆鈕直接推得所屬留言，不符合就標記「篩選略過」、連框都不開。
+      // 用 cbFiltered（可回復）而非 cbCrazy（永久），這樣之後放寬/修正篩選能重新納入。
+      const pre = platform.targetComment(btn);
+      if (pre && !passesFilter(pre.text)) {
+        btn.dataset.cbFiltered = '1';
+        continue;
+      }
       const tries = Number(btn.dataset.cbCrazyTries || 0);
       if (tries >= CRAZY_MAX_TRIES) {
         btn.dataset.cbCrazy = '1'; // 試過上限仍失敗 → 放棄，不再重試
@@ -581,6 +625,12 @@ async function runCrazyQueue() {
       if (cachedSettings.mode !== 'crazy') break; // 開框期間切離 crazy → 停
       if (!found) {
         btn.dataset.cbCrazyTries = String(tries + 1);
+        continue;
+      }
+      // box 端補捉：預檢用回覆鈕推得的留言若與實際框內留言不一致（FB 邊角情況），
+      // 這裡用實際留言再判一次篩選；不符合就標記篩選略過（不重試、不產生）。
+      if (!passesFilter(found.comment.text)) {
+        btn.dataset.cbFiltered = '1';
         continue;
       }
 

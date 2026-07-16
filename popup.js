@@ -76,6 +76,29 @@ function updateModeUI() {
   $('modeWarn').hidden = !danger;
 }
 
+function validateFilter() {
+  const elt = $('filterStatus');
+  const raw = state.filterPattern || '';
+  if (!raw.trim()) {
+    elt.textContent = '目前不篩選，會回覆所有留言。';
+    elt.className = 'hint';
+    return;
+  }
+  if (state.filterRegex) {
+    try {
+      new RegExp(raw, state.filterIgnoreCase ? 'i' : '');
+      elt.textContent = '✓ 有效的正規表示式';
+      elt.className = 'hint ok';
+    } catch (e) {
+      elt.textContent = `✗ 無效的正規表示式：${e.message}（將不會回覆任何留言）`;
+      elt.className = 'hint err';
+    }
+  } else {
+    elt.textContent = `只回覆包含「${raw}」的留言${state.filterIgnoreCase ? '（忽略大小寫）' : ''}。`;
+    elt.className = 'hint';
+  }
+}
+
 async function loadSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   state = normalizeSettings(settings);
@@ -85,7 +108,11 @@ async function loadSettings() {
   $('mode').value = state.mode;
   $('systemPrompt').value = state.systemPrompt;
   $('userPrompt').value = state.userPrompt;
+  $('filterPattern').value = state.filterPattern;
+  $('filterRegex').checked = state.filterRegex;
+  $('filterIgnoreCase').checked = state.filterIgnoreCase;
   updateModeUI();
+  validateFilter();
 }
 
 async function testKey() {
@@ -152,6 +179,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('resetUser').addEventListener('click', () => {
     state.userPrompt = DEFAULT_USER_PROMPT;
     $('userPrompt').value = DEFAULT_USER_PROMPT;
+    save();
+  });
+
+  $('filterPattern').addEventListener('input', () => {
+    state.filterPattern = $('filterPattern').value;
+    validateFilter();
+    saveDebounced();
+  });
+
+  $('filterRegex').addEventListener('change', () => {
+    state.filterRegex = $('filterRegex').checked;
+    validateFilter();
+    save();
+  });
+
+  $('filterIgnoreCase').addEventListener('change', () => {
+    state.filterIgnoreCase = $('filterIgnoreCase').checked;
+    validateFilter();
     save();
   });
 

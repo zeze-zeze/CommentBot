@@ -51,6 +51,22 @@
   </section>
 
   <section>
+    <h2>留言篩選（選填）</h2>
+    <label for="filterPattern">只回覆符合條件的留言</label>
+    <input type="text" id="filterPattern" autocomplete="off" placeholder="關鍵字或 regex；留空＝全部回覆">
+    <p id="filterStatus" class="hint"></p>
+    <label class="switch">
+      <input type="checkbox" id="filterRegex">
+      <span>使用正規表示式（regex）</span>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="filterIgnoreCase" checked>
+      <span>忽略大小寫</span>
+    </label>
+    <p class="hint">留言內容需符合條件才會產生回覆；不符合的留言在<b>任何模式</b>下都會被略過。</p>
+  </section>
+
+  <section>
     <details id="promptAdvanced">
       <summary>進階：自訂提示詞範本</summary>
 

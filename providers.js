@@ -202,6 +202,11 @@ function normalizeSettings(raw) {
       typeof raw.userPrompt === 'string' && raw.userPrompt.trim()
         ? raw.userPrompt
         : DEFAULT_USER_PROMPT,
+    // 留言篩選：只回覆內容符合 filterPattern 的留言（空字串＝不篩選、全部回覆）。
+    // filterRegex 為 true 時以正規表示式比對，否則以子字串比對；filterIgnoreCase 預設開。
+    filterPattern: typeof raw.filterPattern === 'string' ? raw.filterPattern : '',
+    filterRegex: raw.filterRegex === true,
+    filterIgnoreCase: raw.filterIgnoreCase !== false,
   };
 
   // 模式遷移：舊版只有布林 autoOnFocus（true=聚焦自動產生不送出、false=手動）。
