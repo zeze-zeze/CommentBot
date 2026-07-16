@@ -2,12 +2,12 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>YouTube CommentBot</title>
+  <title>CommentBot</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header>
-    <h1>🤖 YouTube CommentBot</h1>
+    <h1>🤖 CommentBot</h1>
     <p class="subtitle">用 AI 幫你回覆 YouTube 留言（Claude / DeepSeek / ChatGPT）</p>
   </header>
 
@@ -33,13 +33,43 @@
 
   <section>
     <h2>回覆設定</h2>
-    <label class="switch">
-      <input type="checkbox" id="autoOnFocus" checked>
-      <span><b>聚焦時自動產生</b>：點開某則留言的回覆框時，自動產生那一則的回覆草稿。關閉則改為手動按按鈕產生。</span>
-    </label>
+    <label for="mode">回覆模式</label>
+    <select id="mode">
+      <option value="hidden">手動（Hidden）— 只在你按按鈕時才產生</option>
+      <option value="checking">檢查（Checking）— 聚焦回覆框時自動產生，不送出</option>
+      <option value="lazy">懶人（Lazy）— 聚焦回覆框時自動產生並自動送出</option>
+      <option value="crazy">瘋狂（Crazy）— 自動掃描留言逐一產生並送出</option>
+    </select>
+    <p id="modeDesc" class="hint"></p>
+    <p id="modeWarn" class="warn" hidden>
+      ⚠️ 此模式會<b>自動替你送出留言</b>，無法復原。請確認你在自己的頻道／粉專，並遵守平台服務條款。
+    </p>
 
     <label for="persona">頻道主人設 / 補充指示（選填）</label>
     <textarea id="persona" rows="3" placeholder="例如：我是科技開箱頻道的頻道主，語氣輕鬆幽默，會用一點台灣的網路用語。"></textarea>
+    <p class="hint">會代入系統提示詞的 <code>{{補充提示}}</code> 位置（若範本未含此變數，則附加在最後）。</p>
+  </section>
+
+  <section>
+    <details id="promptAdvanced">
+      <summary>進階：自訂提示詞範本</summary>
+
+      <div class="label-row">
+        <label for="systemPrompt">系統提示詞（System）</label>
+        <button id="resetSystem" class="ghost tiny" type="button">還原預設</button>
+      </div>
+      <textarea id="systemPrompt" rows="6"></textarea>
+      <p class="hint">可用變數：<code>{{platform}}</code> <code>{{owner}}</code> <code>{{contentType}}</code> <code>{{title}}</code> <code>{{補充提示}}</code>（人設）</p>
+
+      <div class="label-row">
+        <label for="userPrompt">使用者提示詞（User）</label>
+        <button id="resetUser" class="ghost tiny" type="button">還原預設</button>
+      </div>
+      <textarea id="userPrompt" rows="6"></textarea>
+      <p class="hint">可用變數：<code>{{author}}</code>（留言者）<code>{{comment}}</code>（留言內容）</p>
+
+      <p class="hint">留空會自動還原為預設值。人設會另外附加在系統提示詞後面。</p>
+    </details>
   </section>
 
   <section class="usage">

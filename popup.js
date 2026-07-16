@@ -63,13 +63,29 @@ function renderProviderUI() {
   setKeyStatus('', '');
 }
 
+const MODE_DESC = {
+  hidden: '回覆框旁會出現「✨ AI 產生回覆」按鈕，只有你按下時才會產生草稿；永不自動送出。',
+  checking: '點開某則留言的回覆框時，自動產生那一則的回覆草稿並填入；由你確認後自行送出。',
+  lazy: '點開某則留言的回覆框時，自動產生草稿並「自動替你送出」。',
+  crazy: '自動掃描頁面上的留言，逐一開啟回覆框、產生回覆並「自動送出」（每則間隔數秒）。',
+};
+
+function updateModeUI() {
+  $('modeDesc').textContent = MODE_DESC[state.mode] || '';
+  const danger = state.mode === 'lazy' || state.mode === 'crazy';
+  $('modeWarn').hidden = !danger;
+}
+
 async function loadSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   state = normalizeSettings(settings);
   renderProviders();
   renderProviderUI();
   $('persona').value = state.persona;
-  $('autoOnFocus').checked = state.autoOnFocus;
+  $('mode').value = state.mode;
+  $('systemPrompt').value = state.systemPrompt;
+  $('userPrompt').value = state.userPrompt;
+  updateModeUI();
 }
 
 async function testKey() {
@@ -117,8 +133,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveDebounced();
   });
 
-  $('autoOnFocus').addEventListener('change', () => {
-    state.autoOnFocus = $('autoOnFocus').checked;
+  $('systemPrompt').addEventListener('input', () => {
+    state.systemPrompt = $('systemPrompt').value;
+    saveDebounced();
+  });
+
+  $('userPrompt').addEventListener('input', () => {
+    state.userPrompt = $('userPrompt').value;
+    saveDebounced();
+  });
+
+  $('resetSystem').addEventListener('click', () => {
+    state.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+    $('systemPrompt').value = DEFAULT_SYSTEM_PROMPT;
+    save();
+  });
+
+  $('resetUser').addEventListener('click', () => {
+    state.userPrompt = DEFAULT_USER_PROMPT;
+    $('userPrompt').value = DEFAULT_USER_PROMPT;
+    save();
+  });
+
+  $('mode').addEventListener('change', () => {
+    const next = $('mode').value;
+    // 切到會自動送出的模式時，做一次明確確認（避免誤選）
+    if ((next === 'lazy' || next === 'crazy') && next !== state.mode) {
+      const name = next === 'crazy' ? '瘋狂模式' : '懶人模式';
+      const ok = confirm(
+        `「${name}」會自動替你送出留言，無法復原。\n請確認你在自己的頻道／粉專並遵守平台條款。\n\n確定要啟用嗎？`
+      );
+      if (!ok) {
+        $('mode').value = state.mode; // 還原
+        return;
+      }
+    }
+    state.mode = next;
+    updateModeUI();
     save();
   });
 

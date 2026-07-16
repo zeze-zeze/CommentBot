@@ -12,24 +12,29 @@ async function getSettings() {
   return normalizeSettings(settings);
 }
 
-function buildSystemPrompt(settings, ctx) {
+// 依使用者可自訂的提示詞範本組出 system / user 兩段（動態值以 {{變數}} 代入）。
+// persona（頻道主人設）仍會在 system 範本之後附加，作為快速補充指示。
+function buildPrompts(settings, ctx) {
   const isFb = ctx.platform === 'facebook';
-  const platformName = isFb ? 'Facebook' : 'YouTube';
-  const noun = isFb ? '貼文' : '影片';
-  const contentPhrase = ctx.title ? `${noun}「${ctx.title}」` : `的${noun}`;
+  const persona = (settings.persona || '').trim();
+  const vars = {
+    platform: isFb ? 'Facebook' : 'YouTube',
+    contentType: isFb ? '貼文' : '影片',
+    owner: ctx.owner ? `「${ctx.owner}」` : '',
+    title: ctx.title ? `「${ctx.title}」` : '',
+    author: ctx.author || '(未知)',
+    comment: ctx.text || '',
+    補充提示: persona,
+  };
 
-  let prompt = `你是 ${platformName} 上的內容發布者${ctx.owner ? `「${ctx.owner}」` : ''}，正在回覆自己${contentPhrase}下方的一則留言。
-
-回覆規則：
-- 使用留言者所使用的語言回覆（留言是英文就用英文，中文就用中文，依此類推）
-- 語氣自然、友善，像真人，長度 1~3 句話，不要太長
-- 不要加 hashtag、不要署名、不要提到你是 AI 或自動回覆
-- 適度感謝支持、回應留言的重點；若留言提出問題，簡短回答`;
-
-  if (settings.persona && settings.persona.trim()) {
-    prompt += `\n\n補充設定（請遵守）：\n${settings.persona.trim()}`;
+  const tpl = settings.systemPrompt || '';
+  let system = renderTemplate(tpl, vars);
+  // 若範本沒有用到 {{補充提示}} 佔位、但有填人設 → 仍附加在最後（相容未含此變數的舊範本）。
+  if (persona && !/\{\{\s*補充提示\s*\}\}/.test(tpl)) {
+    system += `\n\n補充設定（請遵守）：\n${persona}`;
   }
-  return prompt;
+  const user = renderTemplate(settings.userPrompt, vars);
+  return { system, user };
 }
 
 async function handleGenerateReply(payload) {
@@ -42,12 +47,13 @@ async function handleGenerateReply(payload) {
   }
 
   const model = resolveModel(settings, providerId);
-  const system = buildSystemPrompt(settings, {
+  const { system, user } = buildPrompts(settings, {
     platform: payload.platform || 'youtube',
     title: payload.title || '',
     owner: payload.owner || '',
+    author: payload.author || '',
+    text: payload.text || '',
   });
-  const user = `留言者：${payload.author || '(未知)'}\n留言內容：\n${payload.text}\n\n請直接輸出你要回覆的內容（不要加引號、不要加任何前綴說明）。`;
 
   const spec = provider.chat(apiKey, model, system, user);
 

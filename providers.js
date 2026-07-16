@@ -158,8 +158,34 @@ function inferProviderFromModel(model) {
   return null;
 }
 
-// 產生標準化設定（含預設值與舊版單一供應商設定的遷移）。
-// 標準結構：{ provider, apiKeys:{}, models:{}, persona, autoOnFocus }
+// 回覆模式：
+//   hidden   手動 —— 只在使用者按按鈕時才產生（不自動）
+//   checking 檢查 —— 聚焦回覆框時自動產生草稿，但不送出（預設）
+//   lazy     懶人 —— 聚焦回覆框時自動產生並自動送出
+//   crazy    瘋狂 —— 自動掃描頁面留言，逐一產生並自動送出
+const REPLY_MODES = ['hidden', 'checking', 'lazy', 'crazy'];
+
+// 可由使用者在設定中自訂的提示詞範本。動態值以 {{變數}} 代入：
+//   system 可用：{{platform}} {{owner}} {{contentType}} {{title}} {{補充提示}}
+//   user   可用：{{author}} {{comment}}
+// （{{owner}} / {{title}} 已含引號或為空字串，{{補充提示}}=設定裡的人設，空值皆自然消失。）
+const DEFAULT_SYSTEM_PROMPT = `你在{{platform}}回覆{{contentType}}{{title}}下方的一則留言。{{補充提示}}`;
+
+const DEFAULT_USER_PROMPT = `留言者：{{author}}
+留言內容：
+{{comment}}
+
+請直接輸出你要回覆的內容（不要加引號、不要加任何前綴說明）。`;
+
+// 將 {{變數}} 代入為對應值；未知變數保持原樣。變數名支援中文（用 Unicode 類別，非 \w）。
+function renderTemplate(tpl, vars) {
+  return String(tpl == null ? '' : tpl).replace(/\{\{\s*([\p{L}\p{N}_]+)\s*\}\}/gu, (m, k) =>
+    Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : m
+  );
+}
+
+// 產生標準化設定（含預設值與舊版設定的遷移）。
+// 標準結構：{ provider, apiKeys:{}, models:{}, persona, mode }
 function normalizeSettings(raw) {
   raw = raw || {};
   const out = {
@@ -167,8 +193,21 @@ function normalizeSettings(raw) {
     apiKeys: { ...(raw.apiKeys || {}) },
     models: { ...(raw.models || {}) },
     persona: raw.persona || '',
-    autoOnFocus: raw.autoOnFocus !== false,
+    mode: raw.mode,
+    systemPrompt:
+      typeof raw.systemPrompt === 'string' && raw.systemPrompt.trim()
+        ? raw.systemPrompt
+        : DEFAULT_SYSTEM_PROMPT,
+    userPrompt:
+      typeof raw.userPrompt === 'string' && raw.userPrompt.trim()
+        ? raw.userPrompt
+        : DEFAULT_USER_PROMPT,
   };
+
+  // 模式遷移：舊版只有布林 autoOnFocus（true=聚焦自動產生不送出、false=手動）。
+  if (!REPLY_MODES.includes(out.mode)) {
+    out.mode = raw.autoOnFocus === false ? 'hidden' : 'checking';
+  }
 
   // 舊版（單一供應商）設定 { apiKey, model } → 依模型判斷供應商後搬移
   if (!raw.apiKeys && (raw.apiKey || raw.model)) {
@@ -194,6 +233,10 @@ function resolveModel(settings, providerId) {
   const g = globalThis;
   g.PROVIDERS = PROVIDERS;
   g.PROVIDER_ORDER = PROVIDER_ORDER;
+  g.REPLY_MODES = REPLY_MODES;
+  g.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
+  g.DEFAULT_USER_PROMPT = DEFAULT_USER_PROMPT;
+  g.renderTemplate = renderTemplate;
   g.extractError = extractError;
   g.inferProviderFromModel = inferProviderFromModel;
   g.normalizeSettings = normalizeSettings;

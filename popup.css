@@ -127,6 +127,59 @@ button.ghost:hover {
 .hint {
   font-size: 12px;
   color: #9aa0a6;
+  margin-top: 4px;
+}
+
+.hint code {
+  background: #202124;
+  border: 1px solid #3c4043;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #8ab4f8;
+}
+
+details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8ab4f8;
+  list-style: none;
+  user-select: none;
+}
+
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+details summary::before {
+  content: "▸ ";
+}
+
+details[open] summary::before {
+  content: "▾ ";
+}
+
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label-row label {
+  margin-bottom: 4px;
+}
+
+button.tiny {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+textarea#systemPrompt,
+textarea#userPrompt {
+  font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, "Microsoft JhengHei", monospace;
 }
 
 .hint.ok {
@@ -135,6 +188,31 @@ button.ghost:hover {
 
 .hint.err {
   color: #f28b82;
+}
+
+#modeDesc {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.warn {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #fdd663;
+  background: #3a2f14;
+  border: 1px solid #5c4a1a;
+  border-radius: 6px;
+}
+
+.warn[hidden] {
+  display: none;
+}
+
+.warn b {
+  color: #ffe08a;
 }
 
 .keyhint {
