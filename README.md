@@ -20,6 +20,7 @@
 | **Claude（Anthropic）** | [console.anthropic.com](https://console.anthropic.com/) | Haiku 4.5 / Sonnet 5 / Opus 4.8 |
 | **DeepSeek** | [platform.deepseek.com](https://platform.deepseek.com/) | deepseek-chat / deepseek-reasoner |
 | **ChatGPT（OpenAI）** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | GPT-4o mini / GPT-4o / GPT-5.5 |
+| **Gemini（Google）** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Gemini 2.5 Flash / Gemini 2.5 Pro |
 | **自訂（OpenAI 相容）** | 你自己的端點 | 自行輸入 **API URL**、金鑰（本機端點可留空）、模型名稱 |
 
 > **自訂端點**：選「自訂（OpenAI 相容）」即可接自架或代理的 LLM（Ollama、LM Studio、vLLM、OpenRouter、Together、Groq…）。填入 chat completions 端點網址（例：`https://openrouter.ai/api/v1/chat/completions`、`http://localhost:11434/v1/chat/completions`）、模型名稱，需要的話填金鑰，按「測試連線」驗證。為此擴充功能的 `host_permissions` 放寬到 `https://*/*` 與 `http://*/*`（涵蓋自架 https、以及本機／區網的 http 端點如 Ollama、LM Studio），安裝時的權限提示會較廣（這是自帶端點的必要取捨）。
@@ -62,7 +63,7 @@
 
 ## 取得 API Key
 
-依你要用的供應商，到對應主控台建立金鑰（見上表連結），貼到擴充功能設定中，按「測試連線」確認有效。三家的金鑰都以 `sk-` 開頭（僅為慣例）。
+依你要用的供應商，到對應主控台建立金鑰（見上表連結），貼到擴充功能設定中，按「測試連線」確認有效。金鑰格式因供應商而異（DeepSeek / OpenAI 多為 `sk-`、Claude 為 `sk-ant-`、Gemini 為 `AIza`；自訂端點依你的服務而定）。
 
 > API Key 只會儲存在你本機的瀏覽器（`chrome.storage.local`），僅用於直接呼叫該供應商的 API。
 >
@@ -92,6 +93,7 @@
 - **Claude**：新模型不接受 `temperature`（會 400），故不送；Sonnet 5 明確關閉 thinking 以省 token。
 - **DeepSeek**：`deepseek-reasoner` 是推理模型，會忽略 temperature，速度較慢、用量較高。
 - **ChatGPT**：使用 `max_completion_tokens`、不送 `temperature`，以相容推理模型（GPT-5.x / o 系列）。若 OpenAI 調整模型 ID，改 `providers.js` 的 `openai.models` 即可。
+- **Gemini**：用原生 Generative Language API，金鑰以 `x-goog-api-key` 標頭認證（`AIza` 開頭）。2.5 系列預設會「思考」而吃掉輸出額度 —— Flash 已關閉思考（`thinkingBudget:0`），Pro 無法關閉故設較低上限（1024），避免回覆被思考吃空。
 
 ## 注意事項
 
@@ -112,7 +114,7 @@
 
 ```
 CommentBot/
-├── manifest.json    # MV3 設定（3 個 AI host_permissions；content script 跑在 YouTube/Facebook）
+├── manifest.json    # MV3 設定（AI host_permissions；content script 跑在 YouTube/Facebook）
 ├── providers.js     # 各 AI 供應商的端點/認證/請求格式與設定正規化（三處共用）
 ├── background.js    # Service worker：依供應商呼叫對應 API（平台無關）
 ├── content.js       # 平台轉接器（YouTube / Facebook）+ 共用的聚焦、產生、填入邏輯

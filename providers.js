@@ -141,6 +141,53 @@ const PROVIDERS = {
     },
   },
 
+  gemini: {
+    label: 'Gemini（Google）',
+    keyPlaceholder: 'AIza...',
+    consoleUrl: 'https://aistudio.google.com/apikey',
+    defaultModel: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    ],
+    // Google Generative Language API（原生格式）：model 放在 URL 路徑（:generateContent）；
+    // system 用 system_instruction、對話用 contents；金鑰以 x-goog-api-key 標頭帶入（不放進 query）。
+    chat(apiKey, model, system, user) {
+      // 2.5 系列預設會「思考」而吃掉 maxOutputTokens，可能出現 finishReason=MAX_TOKENS 卻無輸出。
+      // Flash 可關閉思考（thinkingBudget:0）；Pro 無法關閉（最低 128），故設較低上限，
+      // 確保 4096 額度仍留得下實際回覆（Pro 預設動態思考上限 8192 會超過 4096 而吃空）。
+      const generationConfig = {
+        maxOutputTokens: 4096,
+        thinkingConfig: /flash/.test(model) ? { thinkingBudget: 0 } : { thinkingBudget: 1024 },
+      };
+      return {
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: {
+          system_instruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: user }] }],
+          generationConfig,
+        },
+      };
+    },
+    extractReply(data) {
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      return parts
+        .map((p) => p.text || '')
+        .join('')
+        .trim();
+    },
+    testKey(apiKey) {
+      return {
+        url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+        headers: { 'x-goog-api-key': apiKey },
+      };
+    },
+  },
+
   // 自訂端點（OpenAI 相容）：使用者自行輸入 API URL、API Key 與模型名稱。
   // 適用多數自架/代理 LLM（Ollama、LM Studio、vLLM、OpenRouter、Together、Groq…）。
   // url 由設定的 customUrl 帶入（透過 chat/testKey 的 extra 參數）；本機端點可不填金鑰。
@@ -191,7 +238,7 @@ const PROVIDERS = {
 };
 
 // UI 下拉選單顯示順序
-const PROVIDER_ORDER = ['anthropic', 'deepseek', 'openai', 'custom'];
+const PROVIDER_ORDER = ['anthropic', 'deepseek', 'openai', 'gemini', 'custom'];
 
 // 三家錯誤主體皆為 { error: { message } } → 共用擷取
 function extractError(data, status) {
@@ -202,6 +249,7 @@ function inferProviderFromModel(model) {
   if (!model) return null;
   if (model.startsWith('claude')) return 'anthropic';
   if (model.startsWith('deepseek')) return 'deepseek';
+  if (model.startsWith('gemini')) return 'gemini';
   if (/^(gpt|o\d|chatgpt)/.test(model)) return 'openai';
   return null;
 }

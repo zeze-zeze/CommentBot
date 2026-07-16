@@ -1,5 +1,5 @@
-// YouTube CommentBot — background service worker
-// 依使用者選擇的供應商（Claude / DeepSeek / ChatGPT）呼叫對應的 API。
+// CommentBot — background service worker
+// 依使用者選擇的供應商（Claude / DeepSeek / ChatGPT / Gemini，或自訂端點）呼叫對應的 API。
 // 各供應商的端點、標頭、請求 / 回應格式集中在 providers.js。在 service worker
 // 中發送請求（搭配 host_permissions）可避開 YouTube 頁面本身的 CSP / CORS 限制。
 
