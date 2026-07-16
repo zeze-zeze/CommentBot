@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YouTube CommentBot",
-  "version": "1.1.0",
-  "description": "在 YouTube 回覆框聚焦時，用你選擇的 AI（Claude / DeepSeek / ChatGPT）針對當下那一則留言產生回覆草稿，由你確認後手動送出",
+  "name": "CommentBot",
+  "version": "1.2.0",
+  "description": "在 YouTube 或 Facebook 的留言回覆框聚焦時，用你選擇的 AI（Claude / DeepSeek / ChatGPT）針對當下那一則留言產生回覆草稿，由你確認後手動送出",
   "permissions": ["storage"],
   "host_permissions": [
     "https://api.anthropic.com/*",
@@ -14,7 +14,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.facebook.com/*",
+        "https://web.facebook.com/*"
+      ],
       "js": ["providers.js", "content.js"],
       "run_at": "document_idle"
     }

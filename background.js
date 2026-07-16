@@ -13,16 +13,21 @@ async function getSettings() {
 }
 
 function buildSystemPrompt(settings, ctx) {
-  let prompt = `你是 YouTube 頻道${ctx.channelName ? `「${ctx.channelName}」` : ''}的頻道主，正在回覆自己影片${ctx.videoTitle ? `「${ctx.videoTitle}」` : ''}下方的一則觀眾留言。
+  const isFb = ctx.platform === 'facebook';
+  const platformName = isFb ? 'Facebook' : 'YouTube';
+  const noun = isFb ? '貼文' : '影片';
+  const contentPhrase = ctx.title ? `${noun}「${ctx.title}」` : `的${noun}`;
+
+  let prompt = `你是 ${platformName} 上的內容發布者${ctx.owner ? `「${ctx.owner}」` : ''}，正在回覆自己${contentPhrase}下方的一則留言。
 
 回覆規則：
 - 使用留言者所使用的語言回覆（留言是英文就用英文，中文就用中文，依此類推）
-- 語氣自然、友善，像真人頻道主，長度 1~3 句話，不要太長
+- 語氣自然、友善，像真人，長度 1~3 句話，不要太長
 - 不要加 hashtag、不要署名、不要提到你是 AI 或自動回覆
 - 適度感謝支持、回應留言的重點；若留言提出問題，簡短回答`;
 
   if (settings.persona && settings.persona.trim()) {
-    prompt += `\n\n頻道主的補充設定（請遵守）：\n${settings.persona.trim()}`;
+    prompt += `\n\n補充設定（請遵守）：\n${settings.persona.trim()}`;
   }
   return prompt;
 }
@@ -38,8 +43,9 @@ async function handleGenerateReply(payload) {
 
   const model = resolveModel(settings, providerId);
   const system = buildSystemPrompt(settings, {
-    channelName: payload.channelName || '',
-    videoTitle: payload.videoTitle || '',
+    platform: payload.platform || 'youtube',
+    title: payload.title || '',
+    owner: payload.owner || '',
   });
   const user = `留言者：${payload.author || '(未知)'}\n留言內容：\n${payload.text}\n\n請直接輸出你要回覆的內容（不要加引號、不要加任何前綴說明）。`;
 
