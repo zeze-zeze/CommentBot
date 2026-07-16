@@ -1,6 +1,6 @@
-# CommentBot（YouTube / Facebook．多家 AI）
+# CommentBot（YouTube / Facebook / X（Twitter）．多家 AI）
 
-一個 Chrome 擴充功能：在 **YouTube 或 Facebook** 的留言區，當你點開某則留言的回覆框時，用你選擇的 AI **只針對當下 focus 的那一則留言**產生合適的回覆草稿，填入回覆框，**由你確認後自行送出**。
+一個 Chrome 擴充功能：在 **YouTube、Facebook 或 X（Twitter）** 的留言區，當你點開某則留言的回覆框時，用你選擇的 AI **只針對當下 focus 的那一則留言**產生合適的回覆草稿，填入回覆框，**由你確認後自行送出**。
 
 ## 支援平台
 
@@ -8,8 +8,11 @@
 | --- | --- | --- |
 | **YouTube** | `youtube.com/watch` 影片頁留言區 | 穩定 |
 | **Facebook** | `www.facebook.com` / `web.facebook.com` 貼文留言區 | **盡力而為**（見下方說明） |
+| **X（Twitter）** | `x.com` / `twitter.com` 推文回覆 | **盡力而為**（見下方說明） |
 
 > ⚠️ **Facebook 為盡力而為**：Facebook 的網頁 DOM 使用混淆、頻繁變動的自動 class，且 UI 文案會依語言在地化，其留言框是 Lexical 編輯器。本擴充功能改用結構性訊號（`role=article`、`contenteditable/role=textbox/data-lexical-editor`、`dir=auto`、個人檔案連結）盡力辨識，並用 `execCommand('insertText')` 填入（Lexical 的標準做法）。Facebook 若改版可能失效；屆時只需更新 `content.js` 內的 `facebook` 轉接器與 `fb*` 輔助函式即可，其餘不動。
+
+> ⚠️ **X（Twitter）為盡力而為**：X 是 React SPA，本擴充功能以較穩定的 `data-testid` 定位（`tweet` / `tweetText` / `User-Name` / `reply` / `tweetTextarea_*` / `tweetButton(Inline)`）。回覆框是 **DraftJS**（受控 contenteditable），內容由內部 EditorState 管理，從內容腳本用 `execCommand` 會重複、用合成 paste 會被忽略；因此改在**頁面主世界（`inject_twitter.js`，manifest `world:MAIN`，需 Chrome 111+）透過 React fiber 直接更新 DraftJS 的 EditorState**（不碰 DOM、不重複、模型更新後送出鈕才會啟用）。X 的回覆對象以框外「Replying to @…」標籤處理、框內不預填提及，故不保留提及。送出僅透過送出鈕（不使用 Enter 後備，因為 X 的 Enter 是換行）。X 若改版可能失效；屆時只需更新 `content.js` 內的 `twitter` 轉接器、`tw*` 輔助函式與 `inject_twitter.js` 即可，其餘不動。
 
 ## 支援的 AI 供應商
 
@@ -72,21 +75,21 @@
 ## 使用方式
 
 1. 點工具列 🤖 圖示完成設定：**供應商**、**API Key**（可按「測試連線」）、**模型**、**回覆模式**（見上表，預設「檢查」）、**頻道主人設**（選填），以及（進階）**自訂提示詞範本**。
-2. 開啟 YouTube 影片頁或 Facebook 貼文，捲到留言區。
+2. 開啟 YouTube 影片頁、Facebook 貼文或 X（Twitter）推文，捲到留言／回覆區。
 3. 對想回覆的留言按「**回覆**」打開回覆框：
    - **檢查／懶人**模式會自動針對這一則產生草稿並填入（懶人模式還會自動送出）。
    - **手動**模式則按回覆框旁的「**✨ AI 產生回覆**」產生；已產生後可按「🔄 重新產生」。
    - **瘋狂**模式不需你動手，會自動逐一處理頁面上的留言。
-4. 非自動送出的模式：確認 / 修改內容後，**自行送出**（YouTube 按「回覆」、Facebook 按 Enter 或「發佈」）。
+4. 非自動送出的模式：確認 / 修改內容後，**自行送出**（YouTube 按「回覆」、Facebook 按 Enter 或「發佈」、X 按「回覆」鈕或 Ctrl／⌘＋Enter）。
 
 ### 運作方式
 
-- Content script 監聽回覆框取得焦點的事件，依當前網站選用對應的平台轉接器（`PLATFORMS.youtube` / `PLATFORMS.facebook`），找出正在回覆的那一則留言（作者 + 內文）。
+- Content script 監聽回覆框取得焦點的事件，依當前網站選用對應的平台轉接器（`PLATFORMS.youtube` / `PLATFORMS.facebook` / `PLATFORMS.twitter`），找出正在回覆的那一則留言（作者 + 內文）。
 - 只把該留言連同頁面脈絡送給你選定的 AI，產生 1~3 句自然的回覆，**並以留言者的語言回覆**。
 - 送出的 **system / user 提示詞可在設定中自訂**（「進階：自訂提示詞範本」）。動態值以 `{{變數}}` 代入：system 可用 `{{platform}}`、`{{owner}}`、`{{contentType}}`、`{{title}}`、`{{補充提示}}`；user 可用 `{{author}}`、`{{comment}}`（變數名支援中文）。「頻道主人設」會代入 `{{補充提示}}`（若範本未含此變數則附加在最後）。每個範本都有「還原預設」，留空亦自動還原。
 - 各 AI 供應商的端點、認證、請求 / 回應格式集中在 `providers.js`；實際呼叫在 background service worker 進行（避開頁面 CSP，並用 `host_permissions` 跨網域）。
-- 回覆以 `execCommand('insertText')` 填入（會觸發原生輸入事件以啟用送出鈕；YouTube 與 Facebook 的 Lexical 皆適用）；YouTube 若失敗會退回直接寫入，Facebook 則改用合成 paste（Lexical 不可直接寫 textContent）。
-- **送出永遠由你手動完成**；每個回覆框只自動產生一次；框內已有文字時不會自動覆蓋。YouTube 巢狀回覆若自動帶入「@某人」提及，會保留該提及並把回覆接在後面；Facebook 回覆框自動帶入的對方名字則會直接清除，只填入回覆內容（回覆本身已會通知對方）。
+- 回覆以 `execCommand('insertText')` 填入（會觸發原生輸入事件以啟用送出鈕；YouTube、Facebook 的 Lexical 與 X 的 DraftJS 皆適用）；YouTube 若失敗會退回直接寫入，Facebook 與 X 則改用合成 paste（Lexical / DraftJS 不可直接寫 textContent）。
+- **送出永遠由你手動完成**（自動送出模式除外）；每個回覆框只自動產生一次；框內已有文字時不會自動覆蓋。**填入前一律先清空回覆框自動帶入的提及，只填回覆內容**：YouTube 的「@帳號」、Facebook 的對方名字（Lexical 提及節點）都會被清除，X 本來就不在框內預填提及（回覆本身已會通知對方）。
 
 ## 各供應商小提醒
 
@@ -108,16 +111,18 @@
 | 「尚未設定 API Key」 | 點 🤖 圖示，選好供應商、填入該供應商金鑰並按「測試連線」 |
 | 「API 錯誤：…authentication / invalid…」 | 金鑰錯誤，或選錯供應商（金鑰與供應商需對應）；重新確認後按「測試連線」 |
 | Facebook 沒反應 / 抓錯留言 / 沒填入 | Facebook DOM 常改版，屬盡力而為；請回報，通常只需更新 `content.js` 的 `facebook` 轉接器選擇器 |
+| X（Twitter）沒反應 / 抓錯推文 / 沒填入 | X DOM 常改版，屬盡力而為；請回報，通常只需更新 `content.js` 的 `twitter` 轉接器 `data-testid` 選擇器 |
 | 想換一家 AI | 在設定的「供應商」下拉切換即可；各家金鑰會各自保留 |
 
 ## 檔案結構
 
 ```
 CommentBot/
-├── manifest.json    # MV3 設定（AI host_permissions；content script 跑在 YouTube/Facebook）
+├── manifest.json    # MV3 設定（AI host_permissions；content script 跑在 YouTube/Facebook/X）
 ├── providers.js     # 各 AI 供應商的端點/認證/請求格式與設定正規化（三處共用）
 ├── background.js    # Service worker：依供應商呼叫對應 API（平台無關）
-├── content.js       # 平台轉接器（YouTube / Facebook）+ 共用的聚焦、產生、填入邏輯
+├── content.js       # 平台轉接器（YouTube / Facebook / X）+ 共用的聚焦、產生、填入邏輯
+├── inject_twitter.js# X 專用：在頁面主世界(MAIN)透過 React fiber 直接更新 DraftJS 的 EditorState
 ├── popup.html/css/js# 設定介面（供應商、金鑰、模型、人設）
 ├── icons/           # 擴充功能圖示
 └── README.md

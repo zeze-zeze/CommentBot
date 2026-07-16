@@ -147,6 +147,7 @@ async function loadSettings() {
   $('filterIgnoreCase').checked = state.filterIgnoreCase;
   $('platYoutube').checked = state.platforms.youtube;
   $('platFacebook').checked = state.platforms.facebook;
+  $('platTwitter').checked = state.platforms.twitter;
   updateModeUI();
   validateFilter();
 }
@@ -259,6 +260,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   $('platFacebook').addEventListener('change', () => {
     state.platforms.facebook = $('platFacebook').checked;
+    save();
+  });
+
+  $('platTwitter').addEventListener('change', () => {
+    state.platforms.twitter = $('platTwitter').checked;
     save();
   });
 

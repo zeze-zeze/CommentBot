@@ -1,4 +1,4 @@
-// CommentBot — content script（支援 YouTube 與 Facebook）
+// CommentBot — content script（支援 YouTube、Facebook 與 X/Twitter）
 // 依「回覆模式」處理留言回覆，只用選定的 AI 針對「單一」留言產生回覆並填入回覆框：
 //   manual   手動 —— 只在使用者按「✨ AI 產生回覆」時才產生，永不自動送出
 //   checking 檢查 —— 聚焦回覆框時自動產生草稿並填入，但不送出（預設）
@@ -31,6 +31,17 @@ function isConfigured() {
   }
   const k = cachedSettings.apiKeys && cachedSettings.apiKeys[p];
   return !!(k && k.trim());
+}
+
+// 擴充功能情境是否仍有效。重新載入/更新擴充功能後，已開著分頁的舊內容腳本會失去連線，
+// 此時 chrome.runtime 會變成 undefined（存取 sendMessage 會丟 "reading 'sendMessage'"）。
+// 偵測到失效時提示使用者重新整理頁面，而非拋出看不懂的錯誤。
+function extensionAlive() {
+  try {
+    return !!(chrome && chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
 }
 
 // CommentBot 是否在目前平台生效（設定中可逐一開關 YouTube / Facebook）
@@ -169,6 +180,34 @@ function fbText(article, author) {
   return '';
 }
 
+// ---------- X / Twitter 專用輔助 ----------
+// X 的 DOM 以 data-testid 標記（綁 React component 名稱，比 CSS class 穩定）。
+// 作者：留言 article 內 User-Name 區塊；第一個連結文字＝顯示名稱，退而求其次用 @帳號。
+function twAuthor(article) {
+  const un = article.querySelector('[data-testid="User-Name"]');
+  if (!un) return '';
+  const first = cleanText(un.querySelector('a[role="link"]')?.textContent);
+  if (first && !first.startsWith('@')) return first;
+  const m = cleanText(un.textContent).match(/@\w+/);
+  return first || (m ? m[0] : '');
+}
+// 內文：article 內第一個 tweetText（引用推文的 tweetText 在後面，故取第一個即主文）。
+function twText(article) {
+  const t = article.querySelector('[data-testid="tweetText"]');
+  return (t?.innerText || '').trim();
+}
+// execCommand 在 DraftJS 上會殘留「原生插入的裸文字節點」，與模型渲染的 <span data-text> 並存 →
+// 內容顯示重複兩次。DraftJS 的正牌文字只在 leaf 的 <span data-text="true"> 內；此函式移除 leaf
+// 底下直屬的裸文字節點（第一份），只留 data-text（第二份）。僅在 execCommand 後備路徑會用到。
+function twDedupeLeaves(box) {
+  for (const leaf of box.querySelectorAll('span[data-offset-key]')) {
+    if (!leaf.querySelector(':scope > span[data-text="true"]')) continue; // 有正牌 data-text 才處理
+    for (const n of [...leaf.childNodes]) {
+      if (n.nodeType === 3) leaf.removeChild(n); // 直屬裸文字節點＝execCommand 殘留（正牌文字在子 span）
+    }
+  }
+}
+
 // ---------- 平台轉接器 ----------
 // 每個平台提供：
 //   replyBox(target)   由事件目標找出「留言回覆的編輯框」，非回覆框則回 null
@@ -176,7 +215,8 @@ function fbText(article, author) {
 //   composer(box)      要注入控制列的容器
 //   context()          頁面層級脈絡 { title, owner }（可為空字串）
 //   pageKey()          用於去重的頁面識別字串
-//   keepMention        填入時是否保留自動帶入的提及（YouTube:true / Facebook:false）
+//   keepMention        填入時是否保留自動帶入的提及（目前 YouTube/Facebook/X 皆 false＝清空只填回覆）
+//   fill(box,text)     選填：完全接管填入（覆蓋預設的 execCommand 流程）；X 用它走 DraftJS 的 paste
 //   fallbackFill(box,text)  execCommand 失敗時的後備填入
 //   submit(box)        自動送出回覆（lazy / crazy 用）→ Promise<boolean>（true=確認已送出）
 //   boxSelector        頁面上所有回覆框的選擇器（crazy：找剛開啟的框）
@@ -185,7 +225,7 @@ function fbText(article, author) {
 const PLATFORMS = {
   youtube: {
     id: 'youtube',
-    keepMention: true, // 保留 YouTube 巢狀回覆自動帶入的 @提及
+    keepMention: false, // 清空自動帶入的 @提及，只填回覆內容（依使用者要求；fillBox 會先全選刪除再插入）
     boxSelector: '#contenteditable-root',
     fallbackFill(box, text) {
       box.textContent = text;
@@ -388,12 +428,177 @@ const PLATFORMS = {
       return out;
     },
   },
+
+  // X（Twitter）：React SPA，以 data-testid 定位（tweet / tweetText / User-Name / reply /
+  // tweetTextarea_* / tweetButton(Inline)）。回覆框是 DraftJS 的 contenteditable role=textbox，
+  // 與 Lexical 同樣吃 execCommand insertText。X 回覆「不」在框內預填 @提及（改以框外
+  // 「Replying to @x」標籤處理），故框起始為空、keepMention 無作用（設 false）。
+  twitter: {
+    id: 'twitter',
+    keepMention: false, // X 不在框內預填提及；回覆對象由框外標籤處理
+    boxSelector:
+      'div[data-testid^="tweetTextarea_"][role="textbox"][contenteditable="true"], div[data-testid^="tweetTextarea_"] div[role="textbox"][contenteditable="true"]',
+    // 合成 paste：帶 DataTransfer 的 ClipboardEvent。DraftJS 的 onPaste 會讀 clipboardData
+    // 並用自身模型（EditorState）插入，正確更新狀態；這是內容腳本能可靠寫入 DraftJS 的方式。
+    // （React 的 paste 監聽在 root，事件會冒泡上去；不檢查 isTrusted，故合成事件也有效。）
+    fallbackFill(box, text) {
+      try {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(ev, 'clipboardData', { value: dt });
+        box.dispatchEvent(ev);
+      } catch (_) {
+        /* 放棄；切勿改 textContent（會破壞 DraftJS 狀態） */
+      }
+    },
+    // X 的 DraftJS 是「受控 contenteditable」，內容由內部 EditorState 管理。從隔離世界填字都不乾淨：
+    //   • execCommand('insertText')：模型會更新，但原生動作也插一份裸文字節點 → 內容「重複兩次」。
+    //   • 合成 paste（未受信任）：onPaste 常被忽略 → 內容變「空」。
+    // 正解：交給主世界的 inject_twitter.js 透過 React fiber 直接更新 DraftJS 的 EditorState（不碰
+    // DOM → 不重複；模型更新後送出鈕會啟用）。以屬性傳文字、事件觸發、屬性回傳結果與它溝通。
+    // ※ 控制列仍須放在編輯器子樹之外（見 composer），否則 React 協調被破壞、按鈕不會啟用。
+    async fill(box, text) {
+      box.focus();
+      await sleep(20);
+      box.removeAttribute('data-cb-fill-result');
+      box.setAttribute('data-cb-fill-text', text);
+      box.dispatchEvent(new CustomEvent('cb-twitter-fill')); // 主世界（capture）接手
+      let result = '';
+      for (let i = 0; i < 20; i++) {
+        result = box.getAttribute('data-cb-fill-result') || '';
+        if (result) break;
+        await sleep(40);
+      }
+      box.removeAttribute('data-cb-fill-text');
+      box.removeAttribute('data-cb-fill-result');
+      if (result === 'ok') return;
+      // 後備1（主世界找不到 fiber / 失敗）：合成 paste（部分版本可行；不行則無效果，不會弄髒）。
+      this.fallbackFill(box, text);
+      await sleep(120);
+      if (cleanText(box.textContent)) return;
+      // 後備2（最後手段）：execCommand，至少顯示文字。DraftJS 上會殘留裸文字造成重複 →
+      // 插入後呼叫 twDedupeLeaves 移除第一份（裸文字），只留 DraftJS 模型渲染的 data-text。
+      try {
+        box.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, text);
+        await sleep(20);
+        twDedupeLeaves(box);
+      } catch (_) {}
+    },
+    replyBox(target) {
+      if (/\/messages(\/|$)/.test(location.pathname)) return null; // 排除私訊
+      const box = target.closest('div[role="textbox"][contenteditable="true"]');
+      if (!box) return null;
+      // 必須是推文編輯框（tweetTextarea_*），排除私訊等其他 DraftJS 編輯器
+      if (!box.closest('[data-testid^="tweetTextarea_"]')) return null;
+      return box;
+    },
+    targetComment(box) {
+      // 只有「真正在回覆某推文」時才回傳留言，否則回 null（generate/focusin/crazy 皆據此中止）。
+      // 這一步是唯一守門：若把「發新推文 / 引用推文」的編輯框誤判成回覆，lazy 會自動送出一則
+      // 內容是「AI 回覆語氣」的獨立貼文（見下）。判別方式視編輯框是否在回覆彈窗內：
+      //   • 在 role=dialog 彈窗內 → 回覆對象＝該彈窗內的推文；發新文／引用推文的彈窗「不含」
+      //     article[data-testid=tweet]（引用預覽是 div[role=link]），故 scope 內找不到 → null。
+      //   • 不在彈窗內（狀態頁行內回覆框）→ 回覆對象＝文件中位於框前、離它最近的推文；
+      //     首頁頂端「發新推文」行內框其前方沒有推文 → null。
+      const dialog = box.closest && box.closest('div[role="dialog"]');
+      const scope = dialog || document;
+      let article = null;
+      for (const a of scope.querySelectorAll('article[data-testid="tweet"]')) {
+        if (a.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING) article = a;
+      }
+      if (!article) return null;
+      const author = twAuthor(article);
+      const text = twText(article);
+      if (!text) return null;
+      return { author, text };
+    },
+    composer(box) {
+      // 控制列必須放在「DraftJS 編輯器子樹（.DraftEditor-root）之外」的穩定容器：外來節點若落在
+      // 編輯器子樹內（如 box.parentElement = DraftEditor-editorContainer），會干擾 React/DraftJS 的
+      // DOM 協調，可能觸發 removeChild 例外而弄壞整個編輯器（送不出、不能改）。
+      // 作法：往上找「含送出鈕」的祖先＝整個 composer 外框（送出鈕在其工具列，必在 DraftEditor 之外）。
+      let n = box;
+      for (let i = 0; i < 30 && n.parentElement; i++) {
+        n = n.parentElement;
+        if (n.querySelector('button[data-testid="tweetButtonInline"], button[data-testid="tweetButton"]')) {
+          return n;
+        }
+      }
+      // 後備仍須避開 DraftEditor 子樹：優先輸入容器的父層／編輯器根的父層／dialog；
+      // 最後才退回 box.parentElement（避免落在 editorContainer 內）。
+      const inputWrap = box.closest('[data-testid$="RichTextInputContainer"]');
+      const root = box.closest('.DraftEditor-root');
+      return (
+        (inputWrap && inputWrap.parentElement) ||
+        (root && root.parentElement) ||
+        box.closest('div[role="dialog"]') ||
+        box.parentElement
+      );
+    },
+    context() {
+      // 有開回覆彈窗時，以彈窗內的推文為脈絡；否則用主欄第一則推文。
+      // 用「含編輯框的 dialog」判別（勿以 offsetParent 判可見度——彈窗常為 position:fixed）。
+      const dlg = [...document.querySelectorAll('div[role="dialog"]')].find((d) =>
+        d.querySelector('div[data-testid^="tweetTextarea_"]')
+      );
+      const scope = dlg || document;
+      const art = scope.querySelector('article[data-testid="tweet"]');
+      let title = (document.title || '')
+        .replace(/^\(\d+\)\s*/, '')
+        .replace(/\s*[/|]\s*X$/i, '')
+        .trim();
+      let owner = '';
+      if (art) {
+        owner = twAuthor(art);
+        const body = twText(art);
+        if (body) title = body.slice(0, 120);
+      }
+      return { title, owner };
+    },
+    pageKey() {
+      const m = location.pathname.match(/\/status\/(\d+)/);
+      return m ? m[1] : location.pathname;
+    },
+    async submit(box) {
+      await sleep(200); // 等 input 事件讓送出鈕啟用
+      // 送出鈕：往上找含 tweetButton(Inline) 的最近祖先（彈窗用 tweetButton、行內用 tweetButtonInline）
+      let btn = null;
+      let scope = box;
+      for (let i = 0; i < 10 && scope; i++) {
+        btn = scope.querySelector('button[data-testid="tweetButtonInline"], button[data-testid="tweetButton"]');
+        if (btn) break;
+        scope = scope.parentElement;
+      }
+      if (!btn) return false; // 找不到送出鈕：不用 Enter 後備（X 的 Enter 是換行）
+      let disabled = true;
+      for (let i = 0; i < 12; i++) {
+        disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+        if (!disabled) break;
+        await sleep(120);
+      }
+      if (disabled) return false; // 仍停用 → 回報送出失敗（保留草稿）
+      btn.click();
+      // 驗證：送出成功後彈窗會關閉（框 detached）或行內框清空
+      for (let i = 0; i < 20; i++) {
+        await sleep(150);
+        if (!box.isConnected || !cleanText(box.textContent)) return true;
+      }
+      return false;
+    },
+    replyButtons() {
+      return [...document.querySelectorAll('button[data-testid="reply"]')];
+    },
+  },
 };
 
 function pickPlatform() {
   const h = location.hostname;
   if (/(^|\.)youtube\.com$/.test(h)) return PLATFORMS.youtube;
   if (/(^|\.)facebook\.com$/.test(h)) return PLATFORMS.facebook;
+  if (/(^|\.)(x|twitter)\.com$/.test(h)) return PLATFORMS.twitter;
   return null;
 }
 
@@ -426,11 +631,17 @@ async function fillBox(box, text, comment) {
   box.focus();
   await sleep(50);
 
-  // YouTube：保留自動帶入的 @提及，把回覆接在其後。
-  // Facebook（keepMention:false）：直接刪掉自動帶入的名字，只填回覆內容——
-  //   提及是 Lexical 節點、重填後只會變成純文字，而回覆本身已會通知對方。
+  // 各平台按回覆時會自動帶入提及（YouTube 的 @帳號、Facebook 的對方名字 Lexical 節點）。
+  // 目前所有平台皆 keepMention:false → 先清空（下方全選刪除）再只填回覆內容，不保留提及
+  //（回覆本身已會通知對方）。keepMention 機制保留，供未來若有平台需保留提及時使用。
   const { mention } = splitMention(box, comment);
   const finalText = mention && platform.keepMention ? `${mention} ${text}` : text;
+
+  // 平台可完全接管填入方式（X 的 DraftJS 不吃 execCommand，需走 paste）→ 直接委派。
+  if (platform.fill) {
+    await platform.fill(box, finalText);
+    return;
+  }
 
   // 全選 → 刪除既有內容 → 重新插入。execCommand 會觸發原生 beforeinput/input 事件，
   // YouTube 與 Facebook（Lexical）皆透過此路徑更新狀態並啟用送出鈕。
@@ -519,6 +730,11 @@ async function generate(box, btn, status, opts = {}) {
   }
   if (!isConfigured()) {
     if (!auto) setStatus(status, L(cachedSettings.provider === 'custom' ? 'st_no_url' : 'st_no_key'), 'err');
+    return false;
+  }
+  // 擴充功能被重新載入/更新後，此頁的舊內容腳本已失去連線 → 提示刷新（否則 sendMessage 會炸）
+  if (!extensionAlive()) {
+    if (!auto) setStatus(status, L('st_ctx_invalid'), 'err');
     return false;
   }
   // 自動流程：框內若已有真正內文，絕不覆蓋（保護使用者輸入 / 已存在的草稿）

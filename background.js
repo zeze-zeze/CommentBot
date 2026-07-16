@@ -15,16 +15,19 @@ async function getSettings() {
 // 依使用者可自訂的提示詞範本組出 system / user 兩段（動態值以 {{變數}} 代入）。
 // persona（頻道主人設）仍會在 system 範本之後附加，作為快速補充指示。
 function buildPrompts(settings, ctx) {
-  const isFb = ctx.platform === 'facebook';
+  const p = ctx.platform;
   const lang = settings.uiLang; // 範本與其詞彙用「介面語言」；回覆語言由使用者在「補充指示」中指定
   const isZh = lang === 'zh';
   const persona = (settings.persona || '').trim();
+  // 平台名稱與內容類型（影片／貼文／貼文）依平台選取，其餘供應商無關。
+  const platformName = p === 'facebook' ? 'Facebook' : p === 'twitter' ? 'X' : 'YouTube';
+  const ctKey = p === 'facebook' ? 'ct_post' : p === 'twitter' ? 'ct_tweet' : 'ct_video';
   // 標題／頻道主加引號（中文用「」、英文用 "..."；標題在英文範本需前置空白）。空值自然消失。
   const title = ctx.title ? (isZh ? `「${ctx.title}」` : ` "${ctx.title}"`) : '';
   const owner = ctx.owner ? (isZh ? `「${ctx.owner}」` : `"${ctx.owner}"`) : '';
   const vars = {
-    platform: isFb ? 'Facebook' : 'YouTube',
-    contentType: t(isFb ? 'ct_post' : 'ct_video', lang),
+    platform: platformName,
+    contentType: t(ctKey, lang),
     owner,
     title,
     author: ctx.author || t('author_unknown', lang),
