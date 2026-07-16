@@ -1,6 +1,7 @@
-// YouTube CommentBot — popup
-// 純設定介面：選擇供應商、各自儲存 API Key 與模型、測試金鑰。
-// 依賴 providers.js 提供的 PROVIDERS / PROVIDER_ORDER / normalizeSettings（於本檔前載入）。
+// CommentBot — popup
+// 設定介面：供應商 / 金鑰 / 模型、回覆模式、留言篩選、提示詞範本、生效平台、語言。
+// 依賴 providers.js（於本檔前載入）：PROVIDERS / PROVIDER_ORDER / normalizeSettings /
+// DEFAULT_*_PROMPT / I18N / t。
 
 'use strict';
 
@@ -8,6 +9,14 @@ const $ = (id) => document.getElementById(id);
 
 let state = normalizeSettings(null);
 let saveTimer = null;
+
+// 取介面文字（依目前介面語言），vars 可代入 {name} 佔位
+const T = (key, vars) => t(key, state.uiLang, vars);
+
+// 範本是否仍為（任一語言的）預設值 → 視為使用者未自訂
+function isDefaultPrompt(kind, val) {
+  return val === t(`default_${kind}_prompt`, 'en') || val === t(`default_${kind}_prompt`, 'zh');
+}
 
 function currentProvider() {
   return PROVIDERS[state.provider];
@@ -20,6 +29,24 @@ function save() {
 function saveDebounced() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(save, 300);
+}
+
+// 套用介面語言：填入所有標記了 data-i18n* 的靜態文字（HTML 內含標記者用 data-i18n-html）。
+function applyI18n() {
+  const lang = state.uiLang;
+  document.documentElement.lang = lang === 'zh' ? 'zh-TW' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = t(el.dataset.i18n, lang);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach((el) => {
+    el.innerHTML = t(el.dataset.i18nHtml, lang); // 內容為自訂常數（非使用者輸入），可安全用 innerHTML
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPh, lang);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    el.title = t(el.dataset.i18nTitle, lang);
+  });
 }
 
 function setKeyStatus(text, kind) {
@@ -47,7 +74,7 @@ function renderProviderUI() {
   $('apiKey').placeholder = p.keyPlaceholder;
 
   const hint = $('keyHint');
-  hint.textContent = `到 ${p.label} 主控台取得`;
+  hint.textContent = T('key_console', { label: p.label });
   hint.href = p.consoleUrl;
 
   const msel = $('model');
@@ -63,15 +90,8 @@ function renderProviderUI() {
   setKeyStatus('', '');
 }
 
-const MODE_DESC = {
-  hidden: '回覆框旁會出現「✨ AI 產生回覆」按鈕，只有你按下時才會產生草稿；永不自動送出。',
-  checking: '點開某則留言的回覆框時，自動產生那一則的回覆草稿並填入；由你確認後自行送出。',
-  lazy: '點開某則留言的回覆框時，自動產生草稿並「自動替你送出」。',
-  crazy: '自動掃描頁面上的留言，逐一開啟回覆框、產生回覆並「自動送出」（每則間隔數秒）。',
-};
-
 function updateModeUI() {
-  $('modeDesc').textContent = MODE_DESC[state.mode] || '';
+  $('modeDesc').textContent = T('mdesc_' + state.mode);
   const danger = state.mode === 'lazy' || state.mode === 'crazy';
   $('modeWarn').hidden = !danger;
 }
@@ -80,21 +100,21 @@ function validateFilter() {
   const elt = $('filterStatus');
   const raw = state.filterPattern || '';
   if (!raw.trim()) {
-    elt.textContent = '目前不篩選，會回覆所有留言。';
+    elt.textContent = T('flt_off');
     elt.className = 'hint';
     return;
   }
   if (state.filterRegex) {
     try {
       new RegExp(raw, state.filterIgnoreCase ? 'i' : '');
-      elt.textContent = '✓ 有效的正規表示式';
+      elt.textContent = T('flt_valid');
       elt.className = 'hint ok';
     } catch (e) {
-      elt.textContent = `✗ 無效的正規表示式：${e.message}（將不會回覆任何留言）`;
+      elt.textContent = T('flt_invalid', { msg: e.message });
       elt.className = 'hint err';
     }
   } else {
-    elt.textContent = `只回覆包含「${raw}」的留言${state.filterIgnoreCase ? '（忽略大小寫）' : ''}。`;
+    elt.textContent = T('flt_plain', { pat: raw, ic: state.filterIgnoreCase ? T('flt_ic') : '' });
     elt.className = 'hint';
   }
 }
@@ -102,6 +122,8 @@ function validateFilter() {
 async function loadSettings() {
   const { settings } = await chrome.storage.local.get('settings');
   state = normalizeSettings(settings);
+  $('uiLang').value = state.uiLang;
+  applyI18n();
   renderProviders();
   renderProviderUI();
   $('persona').value = state.persona;
@@ -111,6 +133,8 @@ async function loadSettings() {
   $('filterPattern').value = state.filterPattern;
   $('filterRegex').checked = state.filterRegex;
   $('filterIgnoreCase').checked = state.filterIgnoreCase;
+  $('platYoutube').checked = state.platforms.youtube;
+  $('platFacebook').checked = state.platforms.facebook;
   updateModeUI();
   validateFilter();
 }
@@ -121,12 +145,12 @@ async function testKey() {
   state.models[state.provider] = $('model').value;
   await save(); // 必須等寫入完成，background 才讀得到最新金鑰
 
-  setKeyStatus('測試中…');
+  setKeyStatus(T('st_testing'));
   const resp = await chrome.runtime.sendMessage({ type: 'TEST_KEY' });
   if (resp?.ok) {
-    setKeyStatus('✓ 連線成功', 'ok');
+    setKeyStatus(T('st_test_ok'), 'ok');
   } else {
-    setKeyStatus(`✗ ${resp?.error || '測試失敗'}`, 'err');
+    setKeyStatus(`✗ ${resp?.error || ''}`.trim(), 'err');
   }
 }
 
@@ -171,14 +195,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('resetSystem').addEventListener('click', () => {
-    state.systemPrompt = DEFAULT_SYSTEM_PROMPT;
-    $('systemPrompt').value = DEFAULT_SYSTEM_PROMPT;
+    state.systemPrompt = t('default_system_prompt', state.uiLang);
+    $('systemPrompt').value = state.systemPrompt;
     save();
   });
 
   $('resetUser').addEventListener('click', () => {
-    state.userPrompt = DEFAULT_USER_PROMPT;
-    $('userPrompt').value = DEFAULT_USER_PROMPT;
+    state.userPrompt = t('default_user_prompt', state.uiLang);
+    $('userPrompt').value = state.userPrompt;
     save();
   });
 
@@ -200,14 +224,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     save();
   });
 
+  $('platYoutube').addEventListener('change', () => {
+    state.platforms.youtube = $('platYoutube').checked;
+    save();
+  });
+
+  $('platFacebook').addEventListener('change', () => {
+    state.platforms.facebook = $('platFacebook').checked;
+    save();
+  });
+
+  $('uiLang').addEventListener('change', () => {
+    const next = $('uiLang').value;
+    // 範本未自訂時，隨介面語言換成該語言的預設（已自訂則保留）
+    if (isDefaultPrompt('system', state.systemPrompt)) {
+      state.systemPrompt = t('default_system_prompt', next);
+      $('systemPrompt').value = state.systemPrompt;
+    }
+    if (isDefaultPrompt('user', state.userPrompt)) {
+      state.userPrompt = t('default_user_prompt', next);
+      $('userPrompt').value = state.userPrompt;
+    }
+    state.uiLang = next;
+    applyI18n();
+    renderProviderUI(); // keyhint 連結文字隨介面語言
+    updateModeUI(); // modeDesc 隨介面語言
+    validateFilter(); // 篩選狀態隨介面語言
+    save();
+  });
+
   $('mode').addEventListener('change', () => {
     const next = $('mode').value;
     // 切到會自動送出的模式時，做一次明確確認（避免誤選）
     if ((next === 'lazy' || next === 'crazy') && next !== state.mode) {
-      const name = next === 'crazy' ? '瘋狂模式' : '懶人模式';
-      const ok = confirm(
-        `「${name}」會自動替你送出留言，無法復原。\n請確認你在自己的頻道／粉專並遵守平台條款。\n\n確定要啟用嗎？`
-      );
+      const name = T('mode_name_' + next);
+      const ok = confirm(T('confirm_autosubmit').replace('{name}', name));
       if (!ok) {
         $('mode').value = state.mode; // 還原
         return;

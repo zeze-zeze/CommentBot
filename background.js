@@ -16,22 +16,28 @@ async function getSettings() {
 // persona（頻道主人設）仍會在 system 範本之後附加，作為快速補充指示。
 function buildPrompts(settings, ctx) {
   const isFb = ctx.platform === 'facebook';
+  const lang = settings.uiLang; // 範本與其詞彙用「介面語言」；回覆語言由使用者在「補充指示」中指定
+  const isZh = lang === 'zh';
   const persona = (settings.persona || '').trim();
+  // 標題／頻道主加引號（中文用「」、英文用 "..."；標題在英文範本需前置空白）。空值自然消失。
+  const title = ctx.title ? (isZh ? `「${ctx.title}」` : ` "${ctx.title}"`) : '';
+  const owner = ctx.owner ? (isZh ? `「${ctx.owner}」` : `"${ctx.owner}"`) : '';
   const vars = {
     platform: isFb ? 'Facebook' : 'YouTube',
-    contentType: isFb ? '貼文' : '影片',
-    owner: ctx.owner ? `「${ctx.owner}」` : '',
-    title: ctx.title ? `「${ctx.title}」` : '',
-    author: ctx.author || '(未知)',
+    contentType: t(isFb ? 'ct_post' : 'ct_video', lang),
+    owner,
+    title,
+    author: ctx.author || t('author_unknown', lang),
     comment: ctx.text || '',
-    補充提示: persona,
+    補充提示: persona, // 中文變數名
+    persona, // 英文別名（兩者同值）
   };
 
   const tpl = settings.systemPrompt || '';
   let system = renderTemplate(tpl, vars);
-  // 若範本沒有用到 {{補充提示}} 佔位、但有填人設 → 仍附加在最後（相容未含此變數的舊範本）。
-  if (persona && !/\{\{\s*補充提示\s*\}\}/.test(tpl)) {
-    system += `\n\n補充設定（請遵守）：\n${persona}`;
+  // 若範本沒有用到 {{補充提示}}／{{persona}} 佔位、但有填人設 → 仍附加在最後（相容舊範本）。
+  if (persona && !/\{\{\s*(補充提示|persona)\s*\}\}/.test(tpl)) {
+    system += `\n\n${t('persona_prefix', lang)}\n${persona}`;
   }
   const user = renderTemplate(settings.userPrompt, vars);
   return { system, user };
@@ -43,7 +49,7 @@ async function handleGenerateReply(payload) {
   const provider = PROVIDERS[providerId];
   const apiKey = (settings.apiKeys[providerId] || '').trim();
   if (!apiKey) {
-    throw new Error(`尚未設定 ${provider.label} 的 API Key（請點擴充功能圖示進行設定）`);
+    throw new Error(t('err_no_key', settings.uiLang, { label: provider.label }));
   }
 
   const model = resolveModel(settings, providerId);
@@ -65,16 +71,16 @@ async function handleGenerateReply(payload) {
       body: JSON.stringify(spec.body),
     });
   } catch (e) {
-    throw new Error(`網路連線失敗：${e.message}`);
+    throw new Error(t('err_network', settings.uiLang, { msg: e.message }));
   }
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(`API 錯誤：${extractError(data, res.status)}`);
+    throw new Error(t('err_api', settings.uiLang, { msg: extractError(data, res.status) }));
   }
 
   const text = provider.extractReply(data);
-  if (!text) throw new Error('API 回傳了空白內容');
+  if (!text) throw new Error(t('err_empty', settings.uiLang));
   return text;
 }
 
@@ -83,18 +89,18 @@ async function handleTestKey() {
   const providerId = settings.provider;
   const provider = PROVIDERS[providerId];
   const apiKey = (settings.apiKeys[providerId] || '').trim();
-  if (!apiKey) throw new Error('尚未輸入 API Key');
+  if (!apiKey) throw new Error(t('err_no_key_input', settings.uiLang));
 
   const spec = provider.testKey(apiKey);
   let res;
   try {
     res = await fetch(spec.url, { headers: spec.headers });
   } catch (e) {
-    throw new Error(`網路連線失敗：${e.message}`);
+    throw new Error(t('err_network', settings.uiLang, { msg: e.message }));
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error(`${extractError(data, res.status)}（API Key 可能無效）`);
+    throw new Error(t('err_key_invalid', settings.uiLang, { msg: extractError(data, res.status) }));
   }
   return true;
 }

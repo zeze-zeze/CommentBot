@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>CommentBot</title>
@@ -8,99 +8,97 @@
 <body>
   <header>
     <h1>🤖 CommentBot</h1>
-    <p class="subtitle">用 AI 幫你回覆 YouTube 留言（Claude / DeepSeek / ChatGPT）</p>
   </header>
 
   <section>
-    <h2>AI 供應商</h2>
-    <label for="provider">供應商</label>
+    <h2 data-i18n="sec_provider">AI 供應商</h2>
+    <label for="provider" data-i18n="lbl_provider">供應商</label>
     <select id="provider"></select>
 
-    <label for="apiKey">API Key</label>
+    <label for="apiKey" data-i18n="lbl_apikey">API Key（只儲存在本機）</label>
     <div class="row">
       <input type="password" id="apiKey" autocomplete="off">
-      <button id="toggleKey" class="ghost" title="顯示 / 隱藏">👁</button>
+      <button id="toggleKey" class="ghost" data-i18n-title="ttl_toggle" title="顯示 / 隱藏">👁</button>
     </div>
     <div class="row">
-      <button id="testKey" class="ghost">測試連線</button>
+      <button id="testKey" class="ghost" data-i18n="btn_test">測試連線</button>
       <span id="keyStatus" class="hint"></span>
     </div>
-    <p class="keyhint">還沒有金鑰？<a id="keyHint" target="_blank" rel="noopener noreferrer"></a></p>
+    <p class="keyhint"><span data-i18n="lbl_nokey">還沒有金鑰？</span><a id="keyHint" target="_blank" rel="noopener noreferrer"></a></p>
 
-    <label for="model">模型</label>
+    <label for="model" data-i18n="lbl_model">模型</label>
     <select id="model"></select>
   </section>
 
   <section>
-    <h2>回覆設定</h2>
-    <label for="mode">回覆模式</label>
+    <h2 data-i18n="sec_reply">回覆設定</h2>
+    <label for="mode" data-i18n="lbl_mode">回覆模式</label>
     <select id="mode">
-      <option value="hidden">手動（Hidden）— 只在你按按鈕時才產生</option>
-      <option value="checking">檢查（Checking）— 聚焦回覆框時自動產生，不送出</option>
-      <option value="lazy">懶人（Lazy）— 聚焦回覆框時自動產生並自動送出</option>
-      <option value="crazy">瘋狂（Crazy）— 自動掃描留言逐一產生並送出</option>
+      <option value="manual" data-i18n="mode_manual">手動（Manual）— 只在你按按鈕時才產生</option>
+      <option value="checking" data-i18n="mode_checking">檢查（Checking）— 聚焦回覆框時自動產生，不送出</option>
+      <option value="lazy" data-i18n="mode_lazy">懶人（Lazy）— 聚焦回覆框時自動產生並自動送出</option>
+      <option value="crazy" data-i18n="mode_crazy">瘋狂（Crazy）— 自動掃描留言逐一產生並送出</option>
     </select>
     <p id="modeDesc" class="hint"></p>
-    <p id="modeWarn" class="warn" hidden>
-      ⚠️ 此模式會<b>自動替你送出留言</b>，無法復原。請確認你在自己的頻道／粉專，並遵守平台服務條款。
+    <p id="modeWarn" class="warn" data-i18n="warn_autosubmit" hidden>
+      ⚠️ 此模式會自動替你送出留言，無法復原。請確認你在自己的頻道／粉專，並遵守平台服務條款。
     </p>
 
-    <label for="persona">頻道主人設 / 補充指示（選填）</label>
-    <textarea id="persona" rows="3" placeholder="例如：我是科技開箱頻道的頻道主，語氣輕鬆幽默，會用一點台灣的網路用語。"></textarea>
-    <p class="hint">會代入系統提示詞的 <code>{{補充提示}}</code> 位置（若範本未含此變數，則附加在最後）。</p>
+    <label for="persona" data-i18n="lbl_persona">補充指示（選填）</label>
+    <textarea id="persona" rows="3" data-i18n-ph="ph_persona" placeholder="例如：我是科技開箱頻道的頻道主，語氣輕鬆幽默，會用一點台灣的網路用語。"></textarea>
+    <p class="hint" data-i18n-html="hint_persona">會代入系統提示詞的 <code>{{補充提示}}</code> 位置（若範本未含此變數，則附加在最後）。</p>
   </section>
 
   <section>
-    <h2>留言篩選（選填）</h2>
-    <label for="filterPattern">只回覆符合條件的留言</label>
-    <input type="text" id="filterPattern" autocomplete="off" placeholder="關鍵字或 regex；留空＝全部回覆">
+    <h2 data-i18n="sec_filter">留言篩選（選填）</h2>
+    <label for="filterPattern" data-i18n="lbl_filter">只回覆符合條件的留言</label>
+    <input type="text" id="filterPattern" autocomplete="off" data-i18n-ph="ph_filter" placeholder="關鍵字或 regex；留空＝全部回覆">
     <p id="filterStatus" class="hint"></p>
     <label class="switch">
       <input type="checkbox" id="filterRegex">
-      <span>使用正規表示式（regex）</span>
+      <span data-i18n="lbl_regex">使用正規表示式（regex）</span>
     </label>
     <label class="switch">
       <input type="checkbox" id="filterIgnoreCase" checked>
-      <span>忽略大小寫</span>
+      <span data-i18n="lbl_ignorecase">忽略大小寫</span>
     </label>
-    <p class="hint">留言內容需符合條件才會產生回覆；不符合的留言在<b>任何模式</b>下都會被略過。</p>
+    <p class="hint" data-i18n-html="hint_filter">留言內容需符合條件才會產生回覆；不符合的留言在<b>任何模式</b>下都會被略過。</p>
   </section>
 
   <section>
     <details id="promptAdvanced">
-      <summary>進階：自訂提示詞範本</summary>
+      <summary data-i18n="sum_advanced">進階：自訂提示詞範本</summary>
 
       <div class="label-row">
-        <label for="systemPrompt">系統提示詞（System）</label>
-        <button id="resetSystem" class="ghost tiny" type="button">還原預設</button>
+        <label for="systemPrompt" data-i18n="lbl_system">系統提示詞（System）</label>
+        <button id="resetSystem" class="ghost tiny" type="button" data-i18n="btn_reset">還原預設</button>
       </div>
       <textarea id="systemPrompt" rows="6"></textarea>
-      <p class="hint">可用變數：<code>{{platform}}</code> <code>{{owner}}</code> <code>{{contentType}}</code> <code>{{title}}</code> <code>{{補充提示}}</code>（人設）</p>
+      <p class="hint" data-i18n-html="hint_system">可用變數：<code>{{platform}}</code>（平台）<code>{{owner}}</code>（頻道主／粉專）<code>{{contentType}}</code>（影片／貼文）<code>{{title}}</code>（標題）<code>{{補充提示}}</code>（人設）</p>
 
       <div class="label-row">
-        <label for="userPrompt">使用者提示詞（User）</label>
-        <button id="resetUser" class="ghost tiny" type="button">還原預設</button>
+        <label for="userPrompt" data-i18n="lbl_user">使用者提示詞（User）</label>
+        <button id="resetUser" class="ghost tiny" type="button" data-i18n="btn_reset">還原預設</button>
       </div>
       <textarea id="userPrompt" rows="6"></textarea>
-      <p class="hint">可用變數：<code>{{author}}</code>（留言者）<code>{{comment}}</code>（留言內容）</p>
+      <p class="hint" data-i18n-html="hint_user">可用變數：<code>{{author}}</code>（留言者）<code>{{comment}}</code>（留言內容）</p>
 
-      <p class="hint">留空會自動還原為預設值。人設會另外附加在系統提示詞後面。</p>
+      <p class="hint" data-i18n="hint_advanced">留空會自動還原為預設值。人設會另外附加在系統提示詞後面。</p>
     </details>
   </section>
 
-  <section class="usage">
-    <h2>使用方式</h2>
-    <ol>
-      <li>選好供應商、貼上該供應商的 API Key，按「測試連線」確認。</li>
-      <li>在 YouTube 影片頁捲到留言區，對想回覆的留言按「<b>回覆</b>」。</li>
-      <li>系統只針對<b>當下 focus 的那一則</b>產生草稿（或按「✨ AI 產生回覆」）。</li>
-      <li>確認 / 修改後，<b>自行按 YouTube 的「回覆」送出</b>。</li>
-    </ol>
-  </section>
+  <section>
+    <h2 data-i18n="sec_settings">設定</h2>
+    <label data-i18n="lbl_platforms">生效平台</label>
+    <label class="switch"><input type="checkbox" id="platYoutube" checked><span>YouTube</span></label>
+    <label class="switch"><input type="checkbox" id="platFacebook" checked><span>Facebook</span></label>
 
-  <footer>
-    每家供應商的金鑰各自儲存在本機。一次只產生一則，以節省用量。
-  </footer>
+    <label for="uiLang" data-i18n="lbl_uilang">介面語言</label>
+    <select id="uiLang">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+  </section>
 
   <script src="providers.js"></script>
   <script src="popup.js"></script>
