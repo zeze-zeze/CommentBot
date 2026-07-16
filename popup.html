@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube CommentBot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>🤖 YouTube CommentBot</h1>
+    <p class="subtitle">用 AI 幫你回覆 YouTube 留言（Claude / DeepSeek / ChatGPT）</p>
+  </header>
+
+  <section>
+    <h2>AI 供應商</h2>
+    <label for="provider">供應商</label>
+    <select id="provider"></select>
+
+    <label for="apiKey">API Key</label>
+    <div class="row">
+      <input type="password" id="apiKey" autocomplete="off">
+      <button id="toggleKey" class="ghost" title="顯示 / 隱藏">👁</button>
+    </div>
+    <div class="row">
+      <button id="testKey" class="ghost">測試連線</button>
+      <span id="keyStatus" class="hint"></span>
+    </div>
+    <p class="keyhint">還沒有金鑰？<a id="keyHint" target="_blank" rel="noopener noreferrer"></a></p>
+
+    <label for="model">模型</label>
+    <select id="model"></select>
+  </section>
+
+  <section>
+    <h2>回覆設定</h2>
+    <label class="switch">
+      <input type="checkbox" id="autoOnFocus" checked>
+      <span><b>聚焦時自動產生</b>：點開某則留言的回覆框時，自動產生那一則的回覆草稿。關閉則改為手動按按鈕產生。</span>
+    </label>
+
+    <label for="persona">頻道主人設 / 補充指示（選填）</label>
+    <textarea id="persona" rows="3" placeholder="例如：我是科技開箱頻道的頻道主，語氣輕鬆幽默，會用一點台灣的網路用語。"></textarea>
+  </section>
+
+  <section class="usage">
+    <h2>使用方式</h2>
+    <ol>
+      <li>選好供應商、貼上該供應商的 API Key，按「測試連線」確認。</li>
+      <li>在 YouTube 影片頁捲到留言區，對想回覆的留言按「<b>回覆</b>」。</li>
+      <li>系統只針對<b>當下 focus 的那一則</b>產生草稿（或按「✨ AI 產生回覆」）。</li>
+      <li>確認 / 修改後，<b>自行按 YouTube 的「回覆」送出</b>。</li>
+    </ol>
+  </section>
+
+  <footer>
+    每家供應商的金鑰各自儲存在本機。一次只產生一則，以節省用量。
+  </footer>
+
+  <script src="providers.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

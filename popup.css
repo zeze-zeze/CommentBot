@@ -1,0 +1,174 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 360px;
+  background: #202124;
+  color: #e8eaed;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+  padding: 14px;
+}
+
+header {
+  margin-bottom: 12px;
+}
+
+h1 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.subtitle {
+  color: #9aa0a6;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+section {
+  background: #292a2d;
+  border: 1px solid #3c4043;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+h2 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8ab4f8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #bdc1c6;
+  margin: 8px 0 4px;
+}
+
+input[type="password"],
+input[type="text"],
+select,
+textarea {
+  width: 100%;
+  background: #202124;
+  color: #e8eaed;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #8ab4f8;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.row input {
+  flex: 1;
+}
+
+.switch {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+  font-size: 12px;
+  color: #e8eaed;
+  margin: 4px 0 8px;
+}
+
+.switch input {
+  margin-top: 2px;
+  flex: none;
+  width: auto;
+  accent-color: #8ab4f8;
+}
+
+button {
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.ghost {
+  background: transparent;
+  color: #8ab4f8;
+  border: 1px solid #5f6368;
+  padding: 5px 10px;
+  font-weight: 500;
+}
+
+button.ghost:hover {
+  border-color: #8ab4f8;
+}
+
+.hint {
+  font-size: 12px;
+  color: #9aa0a6;
+}
+
+.hint.ok {
+  color: #81c995;
+}
+
+.hint.err {
+  color: #f28b82;
+}
+
+.keyhint {
+  font-size: 11px;
+  color: #80868b;
+  margin: 2px 0 0;
+}
+
+.keyhint a {
+  color: #8ab4f8;
+  text-decoration: none;
+}
+
+.keyhint a:hover {
+  text-decoration: underline;
+}
+
+.usage ol {
+  margin: 0;
+  padding-left: 18px;
+  color: #bdc1c6;
+  font-size: 12px;
+}
+
+.usage li {
+  margin: 4px 0;
+}
+
+.usage b {
+  color: #e8eaed;
+}
+
+footer {
+  color: #80868b;
+  font-size: 11px;
+  text-align: center;
+}

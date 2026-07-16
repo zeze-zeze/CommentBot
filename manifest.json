@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube CommentBot",
+  "version": "1.1.0",
+  "description": "在 YouTube 回覆框聚焦時，用你選擇的 AI（Claude / DeepSeek / ChatGPT）針對當下那一則留言產生回覆草稿，由你確認後手動送出",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.deepseek.com/*",
+    "https://api.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["providers.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "YouTube CommentBot",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
