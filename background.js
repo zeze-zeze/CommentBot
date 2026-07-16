@@ -48,7 +48,13 @@ async function handleGenerateReply(payload) {
   const providerId = settings.provider;
   const provider = PROVIDERS[providerId];
   const apiKey = (settings.apiKeys[providerId] || '').trim();
-  if (!apiKey) {
+  // 自訂端點需要 URL（金鑰可留空給本機端點）；其餘供應商需要金鑰。
+  let extra;
+  if (provider.custom) {
+    const url = (settings.customUrl || '').trim();
+    if (!url) throw new Error(t('err_no_url', settings.uiLang));
+    extra = { url };
+  } else if (!apiKey) {
     throw new Error(t('err_no_key', settings.uiLang, { label: provider.label }));
   }
 
@@ -61,7 +67,7 @@ async function handleGenerateReply(payload) {
     text: payload.text || '',
   });
 
-  const spec = provider.chat(apiKey, model, system, user);
+  const spec = provider.chat(apiKey, model, system, user, extra);
 
   let res;
   try {
@@ -89,18 +95,31 @@ async function handleTestKey() {
   const providerId = settings.provider;
   const provider = PROVIDERS[providerId];
   const apiKey = (settings.apiKeys[providerId] || '').trim();
-  if (!apiKey) throw new Error(t('err_no_key_input', settings.uiLang));
 
-  const spec = provider.testKey(apiKey);
+  let extra;
+  if (provider.custom) {
+    const url = (settings.customUrl || '').trim();
+    if (!url) throw new Error(t('err_no_url', settings.uiLang));
+    extra = { url, model: resolveModel(settings, providerId) };
+  } else if (!apiKey) {
+    throw new Error(t('err_no_key_input', settings.uiLang));
+  }
+
+  const spec = provider.testKey(apiKey, extra);
   let res;
   try {
-    res = await fetch(spec.url, { headers: spec.headers });
+    res = await fetch(spec.url, {
+      method: spec.method || 'GET',
+      headers: spec.headers,
+      body: spec.body ? JSON.stringify(spec.body) : undefined,
+    });
   } catch (e) {
     throw new Error(t('err_network', settings.uiLang, { msg: e.message }));
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null);
-    throw new Error(t('err_key_invalid', settings.uiLang, { msg: extractError(data, res.status) }));
+    const msg = extractError(data, res.status);
+    throw new Error(t(provider.custom ? 'err_test_failed' : 'err_key_invalid', settings.uiLang, { msg }));
   }
   return true;
 }

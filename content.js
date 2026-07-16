@@ -23,9 +23,12 @@ let lastHref = location.href;
 let crazyRunning = false;
 let crazyTimer = null;
 
-// 目前選定的供應商是否已設定 API Key
-function hasApiKey() {
+// 目前選定的供應商是否已完成必要設定：一般供應商需 API Key；自訂端點需 API URL。
+function isConfigured() {
   const p = cachedSettings.provider;
+  if (p === 'custom') {
+    return !!(cachedSettings.customUrl && cachedSettings.customUrl.trim());
+  }
   const k = cachedSettings.apiKeys && cachedSettings.apiKeys[p];
   return !!(k && k.trim());
 }
@@ -514,8 +517,8 @@ async function generate(box, btn, status, opts = {}) {
     if (!auto) setStatus(status, L('st_filtered'), '');
     return false;
   }
-  if (!hasApiKey()) {
-    if (!auto) setStatus(status, L('st_no_key'), 'err');
+  if (!isConfigured()) {
+    if (!auto) setStatus(status, L(cachedSettings.provider === 'custom' ? 'st_no_url' : 'st_no_key'), 'err');
     return false;
   }
   // 自動流程：框內若已有真正內文，絕不覆蓋（保護使用者輸入 / 已存在的草稿）
@@ -609,7 +612,7 @@ async function waitForNewBox(before) {
 
 async function runCrazyQueue() {
   if (cachedSettings.mode !== 'crazy' || crazyRunning || !platformEnabled()) return;
-  if (!hasApiKey() || !platform.replyButtons) return;
+  if (!isConfigured() || !platform.replyButtons) return;
   crazyRunning = true;
   try {
     for (const btn of platform.replyButtons()) {

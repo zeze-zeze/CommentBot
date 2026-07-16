@@ -140,10 +140,58 @@ const PROVIDERS = {
       };
     },
   },
+
+  // 自訂端點（OpenAI 相容）：使用者自行輸入 API URL、API Key 與模型名稱。
+  // 適用多數自架/代理 LLM（Ollama、LM Studio、vLLM、OpenRouter、Together、Groq…）。
+  // url 由設定的 customUrl 帶入（透過 chat/testKey 的 extra 參數）；本機端點可不填金鑰。
+  custom: {
+    label: 'Custom',
+    custom: true, // 標記：需要 API URL、模型為自由輸入、無主控台連結
+    keyPlaceholder: 'sk-... / 你的 API 金鑰（本機端點可留空）',
+    consoleUrl: '',
+    defaultModel: '',
+    models: [], // 模型為自由文字輸入
+    chat(apiKey, model, system, user, extra) {
+      return {
+        url: (extra && extra.url) || '',
+        headers: {
+          'content-type': 'application/json',
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: {
+          model,
+          max_tokens: 2048,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+        },
+      };
+    },
+    extractReply(data) {
+      return (data?.choices?.[0]?.message?.content || '').trim();
+    },
+    // 用最小 chat 請求驗證 URL + 金鑰 + 模型（自架端點未必有 /models 端點）。
+    testKey(apiKey, extra) {
+      return {
+        url: (extra && extra.url) || '',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: {
+          model: (extra && extra.model) || '',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        },
+      };
+    },
+  },
 };
 
 // UI 下拉選單顯示順序
-const PROVIDER_ORDER = ['anthropic', 'deepseek', 'openai'];
+const PROVIDER_ORDER = ['anthropic', 'deepseek', 'openai', 'custom'];
 
 // 三家錯誤主體皆為 { error: { message } } → 共用擷取
 function extractError(data, status) {
@@ -196,6 +244,10 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     // popup 區塊 / 標籤 / 按鈕
     sec_provider: 'AI Provider',
     lbl_provider: 'Provider',
+    provider_custom: 'Custom (OpenAI-compatible)',
+    lbl_apiurl: 'API URL',
+    ph_apiurl: 'https://your-endpoint/v1/chat/completions',
+    ph_model: 'model name (e.g. llama-3.1-70b)',
     lbl_apikey: 'API Key (stored locally only)',
     btn_test: 'Test connection',
     ttl_toggle: 'Show / hide',
@@ -261,6 +313,7 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     st_no_comment: 'No matching comment found',
     st_no_text: "Can't read the comment",
     st_no_key: 'API key not set — click the extension icon to configure',
+    st_no_url: 'API URL not set — click the extension icon to configure',
     st_filtered: "Comment doesn’t match the filter — skipped",
     st_submitted: 'Auto-submitted',
     st_submit_failed: 'Draft filled, but auto-submit failed — please submit manually',
@@ -269,11 +322,13 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     st_bg_no_response: 'No response from the background service',
     // background 錯誤
     err_no_key: 'API key for {label} not set (click the extension icon to set it)',
+    err_no_url: 'API URL not set (click the extension icon to set it)',
     err_network: 'Network request failed: {msg}',
     err_api: 'API error: {msg}',
     err_empty: 'The API returned empty content',
     err_no_key_input: 'No API key entered',
     err_key_invalid: '{msg} (the API key may be invalid)',
+    err_test_failed: '{msg} (check the API URL, model name, and API key)',
   },
   zh: {
     default_system_prompt: `你在{{platform}}回覆{{contentType}}{{title}}下方的一則留言。{{補充提示}}`,
@@ -288,6 +343,10 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     persona_prefix: '補充設定（請遵守）：',
     sec_provider: 'AI 供應商',
     lbl_provider: '供應商',
+    provider_custom: '自訂（OpenAI 相容）',
+    lbl_apiurl: 'API URL',
+    ph_apiurl: 'https://你的端點/v1/chat/completions',
+    ph_model: '模型名稱（例如 llama-3.1-70b）',
     lbl_apikey: 'API Key（只儲存在本機）',
     btn_test: '測試連線',
     ttl_toggle: '顯示 / 隱藏',
@@ -346,6 +405,7 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     st_no_comment: '找不到對應的留言',
     st_no_text: '讀不到留言內容',
     st_no_key: '尚未設定 API Key，請點工具列的擴充功能圖示設定',
+    st_no_url: '尚未設定 API URL，請點工具列的擴充功能圖示設定',
     st_filtered: '留言不符合篩選條件，略過',
     st_submitted: '已自動送出',
     st_submit_failed: '已填入草稿，但自動送出失敗，請手動送出',
@@ -353,11 +413,13 @@ Output only your reply (no quotes, no prefixes or explanations).`,
     st_draft: '已填入草稿，確認後請自行送出',
     st_bg_no_response: '背景服務無回應',
     err_no_key: '尚未設定 {label} 的 API Key（請點擴充功能圖示進行設定）',
+    err_no_url: '尚未設定 API URL（請點擴充功能圖示進行設定）',
     err_network: '網路連線失敗：{msg}',
     err_api: 'API 錯誤：{msg}',
     err_empty: 'API 回傳了空白內容',
     err_no_key_input: '尚未輸入 API Key',
     err_key_invalid: '{msg}（API Key 可能無效）',
+    err_test_failed: '{msg}（請檢查 API URL、模型名稱與 API Key）',
   },
 };
 
@@ -394,6 +456,8 @@ function normalizeSettings(raw) {
       typeof raw.userPrompt === 'string' && raw.userPrompt.trim()
         ? raw.userPrompt
         : t('default_user_prompt', uiLang),
+    // 自訂供應商（custom）的 API 端點 URL。
+    customUrl: typeof raw.customUrl === 'string' ? raw.customUrl : '',
     // 留言篩選：只回覆內容符合 filterPattern 的留言（空字串＝不篩選、全部回覆）。
     // filterRegex 為 true 時以正規表示式比對，否則以子字串比對；filterIgnoreCase 預設開。
     filterPattern: typeof raw.filterPattern === 'string' ? raw.filterPattern : '',

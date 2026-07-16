@@ -20,6 +20,9 @@
 | **Claude（Anthropic）** | [console.anthropic.com](https://console.anthropic.com/) | Haiku 4.5 / Sonnet 5 / Opus 4.8 |
 | **DeepSeek** | [platform.deepseek.com](https://platform.deepseek.com/) | deepseek-chat / deepseek-reasoner |
 | **ChatGPT（OpenAI）** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | GPT-4o mini / GPT-4o / GPT-5.5 |
+| **自訂（OpenAI 相容）** | 你自己的端點 | 自行輸入 **API URL**、金鑰（本機端點可留空）、模型名稱 |
+
+> **自訂端點**：選「自訂（OpenAI 相容）」即可接自架或代理的 LLM（Ollama、LM Studio、vLLM、OpenRouter、Together、Groq…）。填入 chat completions 端點網址（例：`https://openrouter.ai/api/v1/chat/completions`、`http://localhost:11434/v1/chat/completions`）、模型名稱，需要的話填金鑰，按「測試連線」驗證。為此擴充功能的 `host_permissions` 放寬到 `https://*/*` 與 `http://*/*`（涵蓋自架 https、以及本機／區網的 http 端點如 Ollama、LM Studio），安裝時的權限提示會較廣（這是自帶端點的必要取捨）。
 
 設計重點：
 

@@ -15,6 +15,11 @@
     <label for="provider" data-i18n="lbl_provider">供應商</label>
     <select id="provider"></select>
 
+    <div id="customUrlRow" hidden>
+      <label for="customUrl" data-i18n="lbl_apiurl">API URL</label>
+      <input type="text" id="customUrl" autocomplete="off" data-i18n-ph="ph_apiurl" placeholder="https://你的端點/v1/chat/completions">
+    </div>
+
     <label for="apiKey" data-i18n="lbl_apikey">API Key（只儲存在本機）</label>
     <div class="row">
       <input type="password" id="apiKey" autocomplete="off">
@@ -24,10 +29,11 @@
       <button id="testKey" class="ghost" data-i18n="btn_test">測試連線</button>
       <span id="keyStatus" class="hint"></span>
     </div>
-    <p class="keyhint"><span data-i18n="lbl_nokey">還沒有金鑰？</span><a id="keyHint" target="_blank" rel="noopener noreferrer"></a></p>
+    <p class="keyhint" id="keyHintRow"><span data-i18n="lbl_nokey">還沒有金鑰？</span><a id="keyHint" target="_blank" rel="noopener noreferrer"></a></p>
 
     <label for="model" data-i18n="lbl_model">模型</label>
     <select id="model"></select>
+    <input type="text" id="modelText" autocomplete="off" data-i18n-ph="ph_model" placeholder="模型名稱（例如 llama-3.1-70b）" hidden>
   </section>
 
   <section>

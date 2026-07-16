@@ -61,7 +61,7 @@ function renderProviders() {
   for (const id of PROVIDER_ORDER) {
     const o = document.createElement('option');
     o.value = id;
-    o.textContent = PROVIDERS[id].label;
+    o.textContent = id === 'custom' ? T('provider_custom') : PROVIDERS[id].label;
     sel.appendChild(o);
   }
   sel.value = state.provider;
@@ -69,23 +69,35 @@ function renderProviders() {
 
 function renderProviderUI() {
   const p = currentProvider();
+  const isCustom = !!p.custom;
 
   $('apiKey').value = state.apiKeys[state.provider] || '';
   $('apiKey').placeholder = p.keyPlaceholder;
 
-  const hint = $('keyHint');
-  hint.textContent = T('key_console', { label: p.label });
-  hint.href = p.consoleUrl;
+  // 自訂端點：顯示 API URL 與自由輸入的模型名稱、隱藏主控台連結與模型下拉。
+  $('customUrlRow').hidden = !isCustom;
+  $('keyHintRow').hidden = isCustom;
+  $('model').hidden = isCustom;
+  $('modelText').hidden = !isCustom;
 
-  const msel = $('model');
-  msel.innerHTML = '';
-  for (const m of p.models) {
-    const o = document.createElement('option');
-    o.value = m.id;
-    o.textContent = m.label;
-    msel.appendChild(o);
+  if (isCustom) {
+    $('customUrl').value = state.customUrl || '';
+    $('modelText').value = state.models[state.provider] || '';
+  } else {
+    const hint = $('keyHint');
+    hint.textContent = T('key_console', { label: p.label });
+    hint.href = p.consoleUrl;
+
+    const msel = $('model');
+    msel.innerHTML = '';
+    for (const m of p.models) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.label;
+      msel.appendChild(o);
+    }
+    msel.value = state.models[state.provider] || p.defaultModel;
   }
-  msel.value = state.models[state.provider] || p.defaultModel;
 
   setKeyStatus('', '');
 }
@@ -140,10 +152,15 @@ async function loadSettings() {
 }
 
 async function testKey() {
-  // 確保目前供應商的金鑰與模型已存檔（background 會讀取當前供應商）
+  // 確保目前供應商的設定已存檔（background 會讀取當前供應商）
   state.apiKeys[state.provider] = $('apiKey').value.trim();
-  state.models[state.provider] = $('model').value;
-  await save(); // 必須等寫入完成，background 才讀得到最新金鑰
+  if (currentProvider().custom) {
+    state.customUrl = $('customUrl').value.trim();
+    state.models[state.provider] = $('modelText').value.trim();
+  } else {
+    state.models[state.provider] = $('model').value;
+  }
+  await save(); // 必須等寫入完成，background 才讀得到最新設定
 
   setKeyStatus(T('st_testing'));
   const resp = await chrome.runtime.sendMessage({ type: 'TEST_KEY' });
@@ -177,6 +194,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('model').addEventListener('change', () => {
     state.models[state.provider] = $('model').value;
     save();
+  });
+
+  $('modelText').addEventListener('input', () => {
+    state.models[state.provider] = $('modelText').value.trim();
+    saveDebounced();
+  });
+
+  $('customUrl').addEventListener('input', () => {
+    state.customUrl = $('customUrl').value.trim();
+    setKeyStatus('', '');
+    save(); // URL 即時存檔（不 debounce），避免 popup 關太快而遺失
   });
 
   $('persona').addEventListener('input', () => {
@@ -247,6 +275,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     state.uiLang = next;
     applyI18n();
+    renderProviders(); // 自訂供應商的顯示名稱隨介面語言
     renderProviderUI(); // keyhint 連結文字隨介面語言
     updateModeUI(); // modeDesc 隨介面語言
     validateFilter(); // 篩選狀態隨介面語言
