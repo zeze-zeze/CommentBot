@@ -20,8 +20,10 @@ function buildPrompts(settings, ctx) {
   const isZh = lang === 'zh';
   const persona = (settings.persona || '').trim();
   // 平台名稱與內容類型（影片／貼文／貼文）依平台選取，其餘供應商無關。
-  const platformName = p === 'facebook' ? 'Facebook' : p === 'twitter' ? 'X' : 'YouTube';
-  const ctKey = p === 'facebook' ? 'ct_post' : p === 'twitter' ? 'ct_tweet' : 'ct_video';
+  const platformName =
+    p === 'facebook' ? 'Facebook' : p === 'twitter' ? 'X' : p === 'threads' ? 'Threads' : 'YouTube';
+  const ctKey =
+    p === 'facebook' ? 'ct_post' : p === 'twitter' ? 'ct_tweet' : p === 'threads' ? 'ct_thread' : 'ct_video';
   // 標題／頻道主加引號（中文用「」、英文用 "..."；標題在英文範本需前置空白）。空值自然消失。
   const title = ctx.title ? (isZh ? `「${ctx.title}」` : ` "${ctx.title}"`) : '';
   const owner = ctx.owner ? (isZh ? `「${ctx.owner}」` : `"${ctx.owner}"`) : '';

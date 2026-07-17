@@ -119,6 +119,21 @@ function cleanText(s) {
 
 const isVisible = (elm) => !!(elm && elm.offsetParent !== null);
 
+// Lexical / DraftJS 受控編輯器不可直接寫 textContent；改以「合成 paste」（帶 DataTransfer 的
+// ClipboardEvent）填入：其 onPaste 會讀 clipboardData 並用自身模型插入，正確更新狀態並啟用送出鈕。
+// Facebook（Lexical）、X（DraftJS）、Threads（Lexical）的 fallbackFill 共用。
+function synthPaste(box, text) {
+  try {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', { value: dt });
+    box.dispatchEvent(ev);
+  } catch (_) {
+    /* 放棄；切勿改 textContent（會破壞編輯器狀態） */
+  }
+}
+
 // ---------- Facebook 專用輔助（在地化關鍵字用「英文＋繁中」做子字串比對，不做等值比對） ----------
 
 const FB_KW = {
@@ -206,6 +221,112 @@ function twDedupeLeaves(box) {
       if (n.nodeType === 3) leaf.removeChild(n); // 直屬裸文字節點＝execCommand 殘留（正牌文字在子 span）
     }
   }
+}
+
+// ---------- Threads 專用輔助 ----------
+// Threads 與 Facebook 同為 Meta 的 React/RN-web + Lexical 技術棧：class 為混淆亂碼、UI 文案在地化，
+// 且「幾乎沒有穩定的 data-testid」（與 X 不同）。故一律以結構/語意訊號定位：
+//   • 每則貼文／回覆外層為 div[data-pressable-container="true"]（或語意 article / [role=article]），
+//     其內含永久連結 a[href*="/post/"]（時間戳連結）。
+//   • 作者：貼文標頭的個人檔案連結 a[href^="/@"]（路徑恰為 /@帳號、不含後續 /post/）。
+//   • 內文：span[dir="auto"]:not([translate="no"])（translate=no 為帳號/UI 字樣）。
+//   • 回覆框為 Lexical（同 Facebook）→ 沿用 execCommand + 合成 paste 後備，切勿寫 textContent。
+//   • 回覆在桌機版於 role=dialog 彈窗內編輯；送出鈕為文字「Post／發佈」的 div[role=button]（無
+//     aria-label、無 testid），且 Enter 是換行，故只以按鈕送出。若 Threads 改版，改這一區與下方轉接器。
+
+// 送出鈕：以「Post／發佈」等文字比對（刻意不含「回覆」，避免誤點父貼文動作列的回覆圖示）。
+const TH_SUBMIT_RE = /^(post|發佈|發布|發表)$/i;
+const TH_PICKER_RE =
+  /(gif|emoji|photo|image|video|audio|attach|poll|topic|tag|貼圖|表情|相片|照片|影片|投票|話題|標籤)/i;
+// 非回覆的編輯框（發新串／串接／編輯）placeholder / aria 文案 → 一律不視為回覆框。
+// 注意：Threads 的 fbt 字串用彎引號（U+2019），故 what.?s new 以 .? 同時涵蓋直/彎引號與無引號。
+const TH_NONREPLY_RE =
+  /(what.?s new|say (even )?more|share your thoughts|edit a thread|empty text field|有什麼新鮮事|開始新的串文|想說點什麼|編輯串文)/i;
+
+// 由範圍取得所有「貼文／回覆」項目容器（以永久連結錨定，並補上語意 article），依文件順序排序。
+function thPostItems(scope) {
+  const seen = new Set();
+  const items = [];
+  const add = (c) => {
+    if (c && !seen.has(c)) {
+      seen.add(c);
+      items.push(c);
+    }
+  };
+  for (const a of scope.querySelectorAll('a[href*="/post/"]')) {
+    add(a.closest('[data-pressable-container], article, [role="article"]'));
+  }
+  for (const c of scope.querySelectorAll('article, [role="article"]')) add(c);
+  // 只保留「最外層」項目：捨棄被其他項目包住的巢狀容器（如引用貼文），避免回覆對象抓到被引用的貼文。
+  const tops = items.filter((c) => !items.some((o) => o !== c && o.contains(c)));
+  // 依文件順序排序，之後才能正確取「位於回覆框之前、離它最近」的項目。
+  tops.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  return tops;
+}
+// 作者：項目內第一個「個人檔案連結」a[href^="/@"]（路徑恰為 /@帳號，排除 /@帳號/post/…）。
+function thAuthor(item) {
+  for (const a of item.querySelectorAll('a[href^="/@"]')) {
+    const path = (a.getAttribute('href') || '').split('?')[0].split('#')[0].replace(/\/$/, '');
+    if (!/\/@[^/]+$/.test(path)) continue; // 必須以 /@帳號 結尾（不含後續 /post/…）
+    const name = cleanText(a.textContent);
+    if (name) return name;
+    return '@' + path.replace(/^.*\/@/, ''); // 無顯示名時退回 @帳號
+  }
+  return '';
+}
+// 內文擷取。關鍵：Meta 會把「使用者貼文/留言的文字」包在一層帶 lang 的元素（偵測到的內容語言，
+// 例 <div lang="zh-TW">…</div>），而時間戳、帳號、讚數/回覆數、配樂等 UI 都「沒有」lang。故：
+//   1) 優先讀第一個 [lang] 的文字 → 直接命中內文，避開「14小時」這類時間字串（先前的 bug）。
+//   2) 後備才退回 span[dir="auto"]，並排除：回覆框（使用者草稿）、時間戳（含 <time>）、純數字（計數）、
+//      各語系相對時間（14小時 / 3 天 / 2h / 5 mins ago…）。
+function thText(item, author) {
+  const read = (n) => cleanText(n && (n.innerText || n.textContent));
+  const inEditor = (el) => el.closest('[contenteditable="true"]'); // 別把使用者正在打的草稿當內文
+  // 1) [lang] 包裹層（最可靠）
+  for (const node of item.querySelectorAll('[lang]')) {
+    if (inEditor(node)) continue;
+    const t = read(node);
+    if (t && t !== author) return t;
+  }
+  // 2) 後備：合格的 span[dir="auto"]
+  const relTime = /^\d+\s*(小?時|分鐘?|天|日|週|周|個?月|年|秒|min|mins|hr|hrs|h|d|w|mo|y|s)\s*(前|ago)?$/i;
+  for (const s of item.querySelectorAll('span[dir="auto"]:not([translate="no"])')) {
+    if (inEditor(s) || s.querySelector('time') || s.closest('time')) continue; // 回覆框 / 時間戳
+    const t = read(s);
+    if (!t || t === author) continue;
+    if (/^[\d,.\s]+$/.test(t) || relTime.test(t)) continue; // 純數字（計數）/ 相對時間
+    return t;
+  }
+  return '';
+}
+// 由項目容器組出 { author, text }；讀不到內文回 null。
+function thComment(item) {
+  if (!item) return null;
+  const author = thAuthor(item);
+  const text = thText(item, author);
+  if (!text) return null;
+  return { author, text };
+}
+// 依永久連結 code 找出對應的貼文容器（單則貼文頁的「主貼文」＝你要回覆的那則貼文本身）。
+function thRootByCode(scope, code) {
+  if (!code) return null;
+  for (const a of scope.querySelectorAll('a[href*="/post/"]')) {
+    const m = (a.getAttribute('href') || '').match(/\/post\/([^/?#]+)/);
+    if (m && m[1] === code) {
+      const c = a.closest('[data-pressable-container], article, [role="article"]');
+      if (c) return c;
+    }
+  }
+  return null;
+}
+// 取「DOM 順序位於 box 之前、離它最近」的貼文項目。若某項目「包住」box（回覆框/回覆鈕就在該貼文
+// 子樹內），compareDocumentPosition 會回 CONTAINED_BY|FOLLOWING（仍含 FOLLOWING）→ 正確選中該貼文本身。
+function thNearestPreceding(scope, box) {
+  let item = null;
+  for (const c of thPostItems(scope)) {
+    if (c.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING) item = c;
+  }
+  return item;
 }
 
 // ---------- 平台轉接器 ----------
@@ -299,15 +420,7 @@ const PLATFORMS = {
       'div[contenteditable="true"][role="textbox"][data-lexical-editor="true"], div[contenteditable="true"][role="textbox"]',
     // Lexical：execCommand 失敗時改用合成 paste（帶 DataTransfer）；嚴禁寫 textContent。
     fallbackFill(box, text) {
-      try {
-        const dt = new DataTransfer();
-        dt.setData('text/plain', text);
-        const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
-        Object.defineProperty(ev, 'clipboardData', { value: dt });
-        box.dispatchEvent(ev);
-      } catch (_) {
-        /* 放棄；切勿改 textContent（會破壞 Lexical 狀態） */
-      }
+      synthPaste(box, text);
     },
     replyBox(target) {
       const box =
@@ -442,15 +555,7 @@ const PLATFORMS = {
     // 並用自身模型（EditorState）插入，正確更新狀態；這是內容腳本能可靠寫入 DraftJS 的方式。
     // （React 的 paste 監聽在 root，事件會冒泡上去；不檢查 isTrusted，故合成事件也有效。）
     fallbackFill(box, text) {
-      try {
-        const dt = new DataTransfer();
-        dt.setData('text/plain', text);
-        const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
-        Object.defineProperty(ev, 'clipboardData', { value: dt });
-        box.dispatchEvent(ev);
-      } catch (_) {
-        /* 放棄；切勿改 textContent（會破壞 DraftJS 狀態） */
-      }
+      synthPaste(box, text);
     },
     // X 的 DraftJS 是「受控 contenteditable」，內容由內部 EditorState 管理。從隔離世界填字都不乾淨：
     //   • execCommand('insertText')：模型會更新，但原生動作也插一份裸文字節點 → 內容「重複兩次」。
@@ -592,6 +697,117 @@ const PLATFORMS = {
       return [...document.querySelectorAll('button[data-testid="reply"]')];
     },
   },
+
+  // Threads（Meta）：與 Facebook 同為 Lexical 技術棧，故填入沿用預設的 execCommand + 合成 paste 後備
+  // （不需 X 那套主世界 fiber 注入）。無穩定 data-testid，一律以結構/語意訊號定位（見上方 th* 輔助）。
+  // 同時支援「回覆貼文底下的留言」與「回覆貼文本身」：彈窗回覆取彈窗內你點的那一則；貼文詳情頁的行內
+  // 回覆框則回覆該頁主貼文本身（見 targetComment）。找不到對象就回 null（避免把「發新串」誤判為回覆
+  // 而在自動送出模式下送出獨立貼文）。
+  threads: {
+    id: 'threads',
+    keepMention: false,
+    boxSelector:
+      'div[contenteditable="true"][role="textbox"][data-lexical-editor="true"], div[contenteditable="true"][role="textbox"]',
+    // Lexical：execCommand 失敗時改用合成 paste（帶 DataTransfer）；嚴禁寫 textContent。
+    fallbackFill(box, text) {
+      synthPaste(box, text);
+    },
+    replyBox(target) {
+      if (/\/messages(\/|$)/.test(location.pathname)) return null; // 排除私訊（DM）
+      const box = target.closest('div[contenteditable="true"][role="textbox"]');
+      if (!box) return null;
+      // 明確排除「發新串／串接／編輯」等非回覆編輯框（其餘交由 targetComment 把關）。
+      const al = `${box.getAttribute('aria-label') || ''} ${box.getAttribute('aria-placeholder') || ''}`;
+      if (al.trim() && TH_NONREPLY_RE.test(al)) return null;
+      return box;
+    },
+    targetComment(box) {
+      // 回覆對象判定（同時支援「回覆貼文底下的留言」與「回覆貼文本身」）：
+      //   • 彈窗內（點某則貼文/留言的回覆鈕會開 role=dialog 彈窗）→ 取彈窗內「位於回覆框之前、離它最近」
+      //     的項目＝你點的那一則（可能是主貼文，也可能是某則留言）；彈窗內找不到就回 null（安全：不誤送
+      //     成獨立貼文）。彈窗常是 body 末端 portal，故 DOM 全域順序無意義，只在彈窗內找。
+      //   • 行內回覆框（貼文詳情頁底部那條回覆框，非彈窗）→ 回覆對象＝「該頁主貼文」（以網址 code 對應）
+      //     ——這正是「回覆貼文本身」；否則會抓成頁面上最後一則留言。找不到主貼文再退回最近的前一則。
+      const dialog = box.closest && box.closest('[role="dialog"]');
+      if (dialog) return thComment(thNearestPreceding(dialog, box));
+      const isEditable = box.getAttribute && box.getAttribute('contenteditable') === 'true';
+      if (isEditable) {
+        const code = (location.pathname.match(/\/post\/([^/?#]+)/) || [])[1];
+        const root = thRootByCode(document, code);
+        if (root) return thComment(root); // 詳情頁行內回覆框 → 回覆主貼文本身
+      }
+      return thComment(thNearestPreceding(document, box));
+    },
+    composer(box) {
+      return box.closest('form') || box.closest('[role="dialog"]') || box.parentElement;
+    },
+    context() {
+      // 頁面層級脈絡：單則貼文頁的主貼文＝永久連結 code 與網址相符者；否則取頁面第一則貼文容器。
+      // （只找主貼文，不需排序整頁，避免長串在每次產生時做大量 DOM 比較。）
+      const code = (location.pathname.match(/\/post\/([^/?#]+)/) || [])[1];
+      let root =
+        thRootByCode(document, code) ||
+        document.querySelector('[data-pressable-container], article, [role="article"]');
+      let title = (document.title || '').replace(/\s*[•|\-–]\s*Threads\b.*$/i, '').trim();
+      let owner = '';
+      if (root) {
+        owner = thAuthor(root);
+        const body = thText(root, owner);
+        if (body) title = body.slice(0, 120);
+      }
+      return { title, owner };
+    },
+    pageKey() {
+      const m = location.pathname.match(/\/post\/([^/?#]+)/);
+      return m ? m[1] : location.pathname;
+    },
+    async submit(box) {
+      await sleep(200);
+      let scope = box.closest('[role="dialog"]') || box.closest('form');
+      if (!scope) {
+        scope = box;
+        for (let i = 0; i < 8 && scope.parentElement; i++) scope = scope.parentElement;
+      }
+      // 送出鈕：文字「Post／發佈」的 div[role=button]（無 aria-label、無 testid）；排除媒體/選項鈕。
+      // 刻意不比對「回覆」，以免誤點父貼文動作列的回覆圖示（那會再開一個回覆框而非送出）。
+      let btn = null;
+      for (const b of scope.querySelectorAll('div[role="button"], button')) {
+        if (!isVisible(b)) continue;
+        const label = cleanText(b.getAttribute('aria-label') || b.textContent);
+        if (TH_SUBMIT_RE.test(label) && !TH_PICKER_RE.test(label)) {
+          btn = b;
+          break;
+        }
+      }
+      if (!btn) return false; // 找不到送出鈕：不用 Enter 後備（Threads 的 Enter 是換行）
+      let disabled = true;
+      for (let i = 0; i < 15; i++) {
+        disabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+        if (!disabled) break;
+        await sleep(150);
+      }
+      if (disabled) return false; // 仍停用 → 回報送出失敗（保留草稿）
+      btn.click();
+      // 驗證：送出成功後彈窗會關閉（框 detached）或框清空
+      for (let i = 0; i < 20; i++) {
+        await sleep(150);
+        if (!box.isConnected || !cleanText(box.textContent)) return true;
+      }
+      return false;
+    },
+    replyButtons() {
+      // crazy 用：各貼文動作列的「回覆」圖示（svg[aria-label]，在地化）之可點擊祖先。
+      const out = [];
+      for (const svg of document.querySelectorAll('svg[aria-label]')) {
+        const label = cleanText(svg.getAttribute('aria-label'));
+        if (!/reply|回覆|回复|返信|답글|responder|répondre/i.test(label)) continue;
+        if (/replies|repost|轉發|轉貼|再次/i.test(label)) continue; // 排除轉發／「N 則回覆」
+        const btn = svg.closest('[role="button"], a[href], [data-pressable-container]');
+        if (btn && isVisible(btn) && !out.includes(btn)) out.push(btn);
+      }
+      return out;
+    },
+  },
 };
 
 function pickPlatform() {
@@ -599,6 +815,7 @@ function pickPlatform() {
   if (/(^|\.)youtube\.com$/.test(h)) return PLATFORMS.youtube;
   if (/(^|\.)facebook\.com$/.test(h)) return PLATFORMS.facebook;
   if (/(^|\.)(x|twitter)\.com$/.test(h)) return PLATFORMS.twitter;
+  if (/(^|\.)threads\.(com|net)$/.test(h)) return PLATFORMS.threads;
   return null;
 }
 
@@ -627,9 +844,35 @@ function splitMention(box, comment) {
   return { mention: '', body: raw.trim() };
 }
 
+// 產生回覆是非同步的（等 API 數秒），期間編輯器可能被重繪、原本的 box 節點已從文件卸離
+// （尤其 Threads / Facebook 的 Lexical 彈窗）。對卸離節點操作會出錯（例如 selectNodeContents +
+// addRange 丟 "The given range isn't in document."）。此函式先確保拿到「仍在文件內」的回覆框：
+// 若原 box 已卸離，改抓目前可見、通過 replyBox、且對象仍是同一則留言的回覆框（避免填到別則、
+// 或在 lazy 模式送錯對象）；都找不到就放棄（不拋錯）。
+function relocateBox(box, comment) {
+  if (box.isConnected) return box;
+  if (!platform.boxSelector) return null;
+  const wantKey = comment ? commentKey(comment) : null;
+  for (const b of document.querySelectorAll(platform.boxSelector)) {
+    if (!isVisible(b)) continue;
+    const rb = platform.replyBox(b);
+    if (!rb) continue;
+    const c = platform.targetComment(rb);
+    if (!c) continue;
+    if (wantKey && commentKey(c) !== wantKey) continue; // 必須是同一則留言的回覆框
+    return rb;
+  }
+  return null;
+}
+
 async function fillBox(box, text, comment) {
+  box = relocateBox(box, comment);
+  if (!box) return; // 回覆框已消失（編輯器重繪／使用者關閉）→ 放棄，不對卸離節點操作
+
   box.focus();
   await sleep(50);
+  box = relocateBox(box, comment); // focus/等待期間可能又被重繪
+  if (!box) return;
 
   // 各平台按回覆時會自動帶入提及（YouTube 的 @帳號、Facebook 的對方名字 Lexical 節點）。
   // 目前所有平台皆 keepMention:false → 先清空（下方全選刪除）再只填回覆內容，不保留提及
@@ -644,12 +887,20 @@ async function fillBox(box, text, comment) {
   }
 
   // 全選 → 刪除既有內容 → 重新插入。execCommand 會觸發原生 beforeinput/input 事件，
-  // YouTube 與 Facebook（Lexical）皆透過此路徑更新狀態並啟用送出鈕。
-  const sel = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(box);
-  sel.removeAllRanges();
-  sel.addRange(range);
+  // YouTube 與 Facebook / Threads（Lexical）皆透過此路徑更新狀態並啟用送出鈕。
+  // selectNodeContents + addRange 在節點瞬間卸離時會丟 "range isn't in document"，故 try/catch：
+  // 失敗改用 execCommand('selectAll')（在已聚焦的編輯框內全選），仍不拋錯。
+  try {
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {
+    try {
+      document.execCommand('selectAll', false, null);
+    } catch (_) {}
+  }
   document.execCommand('delete');
 
   const inserted = document.execCommand('insertText', false, finalText);

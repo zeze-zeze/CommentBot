@@ -148,6 +148,7 @@ async function loadSettings() {
   $('platYoutube').checked = state.platforms.youtube;
   $('platFacebook').checked = state.platforms.facebook;
   $('platTwitter').checked = state.platforms.twitter;
+  $('platThreads').checked = state.platforms.threads;
   updateModeUI();
   validateFilter();
 }
@@ -265,6 +266,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   $('platTwitter').addEventListener('change', () => {
     state.platforms.twitter = $('platTwitter').checked;
+    save();
+  });
+
+  $('platThreads').addEventListener('change', () => {
+    state.platforms.threads = $('platThreads').checked;
     save();
   });
 
