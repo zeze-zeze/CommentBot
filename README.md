@@ -58,8 +58,6 @@ Reply only to comments that match a **keyword** or **regex**; non-matching comme
 
 ## Demo
 
-<video src="assets/demo.mp4" controls muted width="720"></video>
-
-> Video not playing on GitHub? [**Watch `assets/demo.mp4`**](assets/demo.mp4).
+[**Watch the demo video**](assets/demo.mp4)
 
 <p align="center"><img src="assets/popup.png" alt="CommentBot settings popup" width="360"></p>
