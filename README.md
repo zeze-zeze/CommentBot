@@ -58,6 +58,6 @@ Reply only to comments that match a **keyword** or **regex**; non-matching comme
 
 ## Demo
 
-[**Watch the demo video on YouTube**](https://youtu.be/jtjfglnXm1I)
+[**Watch the demo video**](https://youtu.be/jtjfglnXm1I)
 
 <p align="center"><img src="assets/popup.png" alt="CommentBot settings popup" width="360"></p>
