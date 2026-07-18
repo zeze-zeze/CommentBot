@@ -17,8 +17,6 @@ Bring your own key and switch providers anytime — each keeps its own key & mod
 | **Gemini (Google)** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Gemini 2.5 Flash · Gemini 2.5 Pro |
 | **Custom (OpenAI-compatible)** | your own endpoint | free-text model name |
 
-The **Custom** provider points CommentBot at any self-hosted or proxied endpoint (Ollama, LM Studio, OpenRouter, …).
-
 ### Reply settings
 
 - **Focus-driven, one at a time** — drafts a reply for the exact comment whose reply box you opened.
