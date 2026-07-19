@@ -53,8 +53,13 @@ Reply only to comments that match a **keyword** or **regex**; non-matching comme
 2. Open a YouTube / X / Facebook / Threads post and click **Reply** on a comment.
 3. Review the drafted reply and send it — or let Lazy/Crazy send it for you.
 
-> Your API key is stored only in your browser (`chrome.storage.local`) and is used solely to call the
-> provider's API directly. Calling an AI API incurs usage costs that vary by provider and model.
+> **Privacy.** Your API key and settings are stored only in your browser
+> (`chrome.storage.local`) and are never sent to the developer. To draft a reply, the
+> comment text and limited page context (commenter name/handle, post title, page owner)
+> are sent **directly from your browser** to the AI provider you chose — or to the
+> custom endpoint you configured. There is no CommentBot server. See
+> [PRIVACY.md](PRIVACY.md) for the full policy. Calling an AI API incurs usage costs
+> that vary by provider and model.
 
 ## Demo
 

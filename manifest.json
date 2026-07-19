@@ -1,18 +1,17 @@
 {
   "manifest_version": 3,
   "name": "CommentBot",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "minimum_chrome_version": "111",
-  "description": "在 YouTube、Facebook、X（Twitter）或 Threads 的留言回覆框聚焦時，用你選擇的 AI（Claude / DeepSeek / ChatGPT / Gemini，或自訂端點）針對當下那一則留言產生回覆草稿，由你確認後手動送出",
+  "description": "在 YouTube、Facebook、X、Threads 留言回覆框聚焦時，用你選的 AI（Claude／DeepSeek／ChatGPT／Gemini 或自訂端點）產生回覆草稿；可自行開啟自動填入、自動送出與逐則批次回覆。",
   "permissions": ["storage"],
   "host_permissions": [
     "https://api.anthropic.com/*",
     "https://api.deepseek.com/*",
     "https://api.openai.com/*",
-    "https://generativelanguage.googleapis.com/*",
-    "https://*/*",
-    "http://*/*"
+    "https://generativelanguage.googleapis.com/*"
   ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js"
   },

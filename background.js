@@ -12,6 +12,25 @@ async function getSettings() {
   return normalizeSettings(settings);
 }
 
+// 自訂端點的主機不在 host_permissions（改放 optional_host_permissions），需使用者在
+// popup 按「測試連線」時逐一授權該來源。發送請求前先確認已取得授權，未授權時給出可行動的錯誤，
+// 而非讓 fetch 因 CORS/權限失敗後只回傳含糊的網路錯誤。
+async function ensureHostPermission(url, uiLang) {
+  let origin;
+  let host;
+  try {
+    const u = new URL(url);
+    host = u.host;
+    // 用 hostname（不含埠）組 match pattern：Chrome match pattern 不允許帶埠；portless
+    // 樣式涵蓋該主機所有埠，且與 popup 的 permissions.request 用同一組法，contains 才會相符。
+    origin = `${u.protocol}//${u.hostname}/*`;
+  } catch (_) {
+    throw new Error(t('err_no_url', uiLang));
+  }
+  const granted = await chrome.permissions.contains({ origins: [origin] });
+  if (!granted) throw new Error(t('err_no_perm', uiLang, { host }));
+}
+
 // 依使用者可自訂的提示詞範本組出 system / user 兩段（動態值以 {{變數}} 代入）。
 // persona（頻道主人設）仍會在 system 範本之後附加，作為快速補充指示。
 function buildPrompts(settings, ctx) {
@@ -58,6 +77,7 @@ async function handleGenerateReply(payload) {
   if (provider.custom) {
     const url = (settings.customUrl || '').trim();
     if (!url) throw new Error(t('err_no_url', settings.uiLang));
+    await ensureHostPermission(url, settings.uiLang);
     extra = { url };
   } else if (!apiKey) {
     throw new Error(t('err_no_key', settings.uiLang, { label: provider.label }));
@@ -105,6 +125,7 @@ async function handleTestKey() {
   if (provider.custom) {
     const url = (settings.customUrl || '').trim();
     if (!url) throw new Error(t('err_no_url', settings.uiLang));
+    await ensureHostPermission(url, settings.uiLang);
     extra = { url, model: resolveModel(settings, providerId) };
   } else if (!apiKey) {
     throw new Error(t('err_no_key_input', settings.uiLang));

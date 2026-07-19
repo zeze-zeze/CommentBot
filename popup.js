@@ -55,6 +55,33 @@ function setKeyStatus(text, kind) {
   el.className = 'hint' + (kind ? ` ${kind}` : '');
 }
 
+function isLocalHost(hostname) {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  );
+}
+
+// 自訂端點若為「非本機的 http」（未加密），提醒金鑰與留言內容會以明文傳送 → 建議改用 https。
+function updateCustomUrlWarn() {
+  const el = $('customUrlWarn');
+  if (!el) return;
+  let show = false;
+  const raw = (state.customUrl || '').trim();
+  if (currentProvider().custom && raw) {
+    try {
+      const u = new URL(raw);
+      show = u.protocol === 'http:' && !isLocalHost(u.hostname);
+    } catch (_) {
+      show = false;
+    }
+  }
+  el.textContent = show ? T('warn_http_cleartext') : '';
+  el.hidden = !show;
+}
+
 function renderProviders() {
   const sel = $('provider');
   sel.innerHTML = '';
@@ -99,6 +126,7 @@ function renderProviderUI() {
     msel.value = state.models[state.provider] || p.defaultModel;
   }
 
+  updateCustomUrlWarn();
   setKeyStatus('', '');
 }
 
@@ -153,10 +181,49 @@ async function loadSettings() {
   validateFilter();
 }
 
+// 自訂端點：其主機放在 optional_host_permissions，需在使用者手勢（此處為按下「測試連線」）中
+// 請求該來源的存取權。chrome.permissions.request 必須在任何 await 之前呼叫，否則會失去手勢；
+// 故此函式在第一個 await（即 permissions.request）之前只有同步的 URL 解析。
+async function ensureCustomOriginPermission(rawUrl) {
+  let u;
+  try {
+    u = new URL(rawUrl);
+  } catch (_) {
+    setKeyStatus(T('err_bad_url'), 'err');
+    return false;
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    setKeyStatus(T('err_bad_url'), 'err');
+    return false;
+  }
+  // 用 hostname（不含通訊埠）組 match pattern：Chrome 的 match pattern 不允許帶埠，
+  // 而 host 會含埠（如 localhost:11434）→ 無效樣式。portless 樣式會涵蓋該主機的所有埠，
+  // 故之後對含埠 URL 的 fetch 仍在授權範圍內。
+  const origin = `${u.protocol}//${u.hostname}/*`;
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [origin] });
+  } catch (e) {
+    setKeyStatus(String(e?.message || e), 'err');
+    return false;
+  }
+  if (!granted) {
+    setKeyStatus(T('err_perm_denied', { host: u.host }), 'err');
+    return false;
+  }
+  return true;
+}
+
 async function testKey() {
+  const isCustom = !!currentProvider().custom;
+  // 自訂端點須先在此手勢中取得主機存取權（於任何 await 之前呼叫 permissions.request）。
+  if (isCustom) {
+    const ok = await ensureCustomOriginPermission($('customUrl').value.trim());
+    if (!ok) return;
+  }
   // 確保目前供應商的設定已存檔（background 會讀取當前供應商）
   state.apiKeys[state.provider] = $('apiKey').value.trim();
-  if (currentProvider().custom) {
+  if (isCustom) {
     state.customUrl = $('customUrl').value.trim();
     state.models[state.provider] = $('modelText').value.trim();
   } else {
@@ -206,6 +273,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('customUrl').addEventListener('input', () => {
     state.customUrl = $('customUrl').value.trim();
     setKeyStatus('', '');
+    updateCustomUrlWarn();
     save(); // URL 即時存檔（不 debounce），避免 popup 關太快而遺失
   });
 
