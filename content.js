@@ -196,18 +196,50 @@ function fbText(article, author) {
 }
 // 貼文（非留言）：FB 以 data-ad-rendering-role="story_message" 標記貼文內文；留言則為 [role="article"]。
 // 貼文本身「不是」article，故需專門擷取其內文與作者（見 facebook.targetComment / context）。
-function fbPostStory() {
-  return document.querySelector('[data-ad-rendering-role="story_message"]');
+// ★ 一律以「回覆框所屬的那一篇貼文」為範圍：FB 會同時保留多篇貼文的 DOM（背景動態牆／上一個開啟的
+//   貼文），若用全頁 document.querySelector 會抓到「第一篇（＝別篇）」的內文（回報的 bug：點開下一篇
+//   卻抓到上一篇）。故在多篇並存時，選「與回覆框的共同祖先最靠近 box（＝同一篇）」的那個 story_message。
+function fbPostStory(box) {
+  const all = document.querySelectorAll('[data-ad-rendering-role="story_message"]');
+  if (!box || all.length <= 1) return all[0] || null;
+  const boxAnc = new Map(); // box 的每個祖先 → 距離 box 的層數（越小越接近 box）
+  let d = 0;
+  for (let p = box; p; p = p.parentElement) boxAnc.set(p, d++);
+  let best = null;
+  let bestDist = Infinity;
+  for (const sm of all) {
+    for (let p = sm; p; p = p.parentElement) {
+      if (boxAnc.has(p)) {
+        const dist = boxAnc.get(p); // 共同祖先離 box 越近 → 越可能是同一篇
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = sm;
+        }
+        break;
+      }
+    }
+  }
+  return best || all[0];
 }
-function fbPostText() {
-  const sm = fbPostStory();
+// 這篇貼文的容器＝story_message 與 box 的最近共同祖先（用來把作者查詢限縮在同一篇內）。
+function fbPostRoot(box) {
+  const sm = fbPostStory(box);
+  if (!box || !sm) return document;
+  const anc = new Set();
+  for (let p = box; p; p = p.parentElement) anc.add(p);
+  for (let p = sm; p; p = p.parentElement) if (anc.has(p)) return p;
+  return document;
+}
+function fbPostText(box) {
+  const sm = fbPostStory(box);
   return sm ? cleanText(sm.innerText || sm.textContent) : '';
 }
-// 貼文作者：story_message 之前、第一個「個人檔案(/user/)」連結的顯示名（群組貼文時＝發文者本人，
-// 非群組名）。找不到時退回 profile_name（粉專／個人貼文即為擁有者名）。
-function fbPostAuthor() {
-  const story = fbPostStory();
-  for (const a of document.querySelectorAll('a[href*="/user/"]')) {
+// 貼文作者：（限縮在同一篇貼文內）story_message 之前、第一個「個人檔案(/user/)」連結的顯示名（群組
+// 貼文時＝發文者本人，非群組名）。找不到時退回 profile_name（粉專／個人貼文即為擁有者名）。
+function fbPostAuthor(box) {
+  const root = fbPostRoot(box);
+  const story = fbPostStory(box);
+  for (const a of root.querySelectorAll('a[href*="/user/"]')) {
     if (story && !(story.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING)) continue;
     const name =
       cleanText(a.getAttribute('aria-label')) ||
@@ -216,16 +248,16 @@ function fbPostAuthor() {
       cleanText(a.textContent);
     if (name && !fbIsChrome(name) && !/^\d+$/.test(name)) return name;
   }
-  const pn = document.querySelector('[data-ad-rendering-role="profile_name"]');
+  const pn = root.querySelector('[data-ad-rendering-role="profile_name"]');
   const t = pn && cleanText(pn.textContent);
   if (t) return t.replace(/\s*(加入|Join|Follow|追蹤)\s*$/i, '').trim();
   return '';
 }
 // 貼文本身作為「被回覆對象」：{ author, text }；無內文（如純圖片貼文）回 null。
-function fbPostComment() {
-  const text = fbPostText();
+function fbPostComment(box) {
+  const text = fbPostText(box);
   if (!text) return null;
-  return { author: fbPostAuthor(), text };
+  return { author: fbPostAuthor(box), text };
 }
 
 // ---------- X / Twitter 專用輔助 ----------
@@ -540,20 +572,21 @@ const PLATFORMS = {
         if (!text) return null;
         return { author, text };
       }
-      return fbPostComment(); // 回覆貼文本身（{author,text}；無內文時 null → 中止產生）
+      return fbPostComment(box); // 回覆貼文本身（{author,text}；無內文時 null → 中止產生）
     },
     composer(box) {
       return box.closest('form') || box.parentElement;
     },
-    context() {
+    context(box) {
       // 頁面層級脈絡＝貼文本身（非留言）。貼文內文以 story_message 為準；先前用「最外層 article」
       // 會把第一則留言誤當成貼文（貼文本身並非 [role="article"]）。
+      // 以 box 限縮到「當前這篇貼文」，避免多篇貼文並存時抓到別篇（見 fbPostStory）。
       let title = (document.title || '').replace(/\s*[|\-–]\s*Facebook\s*$/i, '').trim();
       let owner = '';
-      const body = fbPostText();
+      const body = fbPostText(box);
       if (body) {
         title = body.slice(0, 120);
-        owner = fbPostAuthor();
+        owner = fbPostAuthor(box);
         return { title, owner };
       }
       // 後備（無 story_message，如純圖片貼文）：沿用「最外層 article」推測
@@ -1103,7 +1136,7 @@ async function generate(box, btn, status, opts = {}) {
 
   let handled = false;
   try {
-    const ctx = platform.context();
+    const ctx = platform.context(box);
     const resp = await chrome.runtime.sendMessage({
       type: 'GENERATE_REPLY',
       payload: {

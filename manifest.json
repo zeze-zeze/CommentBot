@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CommentBot",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "minimum_chrome_version": "111",
   "description": "在 YouTube、Facebook、X、Threads 留言回覆框聚焦時，用你選的 AI（Claude／DeepSeek／ChatGPT／Gemini 或自訂端點）產生回覆草稿；可自行開啟自動填入、自動送出與逐則批次回覆。",
   "permissions": ["storage"],
