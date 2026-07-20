@@ -194,6 +194,39 @@ function fbText(article, author) {
   }
   return '';
 }
+// 貼文（非留言）：FB 以 data-ad-rendering-role="story_message" 標記貼文內文；留言則為 [role="article"]。
+// 貼文本身「不是」article，故需專門擷取其內文與作者（見 facebook.targetComment / context）。
+function fbPostStory() {
+  return document.querySelector('[data-ad-rendering-role="story_message"]');
+}
+function fbPostText() {
+  const sm = fbPostStory();
+  return sm ? cleanText(sm.innerText || sm.textContent) : '';
+}
+// 貼文作者：story_message 之前、第一個「個人檔案(/user/)」連結的顯示名（群組貼文時＝發文者本人，
+// 非群組名）。找不到時退回 profile_name（粉專／個人貼文即為擁有者名）。
+function fbPostAuthor() {
+  const story = fbPostStory();
+  for (const a of document.querySelectorAll('a[href*="/user/"]')) {
+    if (story && !(story.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING)) continue;
+    const name =
+      cleanText(a.getAttribute('aria-label')) ||
+      cleanText(a.querySelector('span[dir="auto"]')?.textContent) ||
+      cleanText(a.querySelector('span')?.textContent) ||
+      cleanText(a.textContent);
+    if (name && !fbIsChrome(name) && !/^\d+$/.test(name)) return name;
+  }
+  const pn = document.querySelector('[data-ad-rendering-role="profile_name"]');
+  const t = pn && cleanText(pn.textContent);
+  if (t) return t.replace(/\s*(加入|Join|Follow|追蹤)\s*$/i, '').trim();
+  return '';
+}
+// 貼文本身作為「被回覆對象」：{ author, text }；無內文（如純圖片貼文）回 null。
+function fbPostComment() {
+  const text = fbPostText();
+  if (!text) return null;
+  return { author: fbPostAuthor(), text };
+}
 
 // ---------- X / Twitter 專用輔助 ----------
 // X 的 DOM 以 data-testid 標記（綁 React component 名稱，比 CSS class 穩定）。
@@ -422,6 +455,48 @@ const PLATFORMS = {
     fallbackFill(box, text) {
       synthPaste(box, text);
     },
+    // 按「回覆」後 FB 會自動帶入對方名字的 mention 節點（atomic Lexical node）。共用的
+    // fillBox「全選→execCommand('delete')→insertText」對這種節點清除不穩，常殘留成「對方名字＋回覆」。
+    // 故 Facebook 接管填入：一律「先全選（含 mention）再『取代』整個選取範圍」＝先清空欄位再輸入。
+    // 逐一嘗試 insertText／合成 paste／delete+insertText，每次都先全選（避免內容累加），
+    // 直到欄位內容等於目標回覆為止；每種機制皆為「取代選取範圍」語意，故能連同 mention 一起清掉。
+    async fill(box, text) {
+      // 比對時去掉所有空白：Lexical 會把多段（多行）回覆渲染成多個 <p>，textContent 串接後
+      // 與原字串的換行/空白不完全一致；只要「非空白字元」相符即視為已正確填入（且無殘留 mention）。
+      const strip = (s) => (s || '').replace(/\s+/g, '');
+      const want = strip(text);
+      const selectAll = () => {
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(box);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (_) {
+          try {
+            document.execCommand('selectAll', false, null);
+          } catch (_) {}
+        }
+      };
+      const strategies = [
+        () => document.execCommand('insertText', false, text), // 取代整個選取範圍
+        () => synthPaste(box, text), // Lexical onPaste：先刪除選取內容再插入
+        () => {
+          document.execCommand('delete');
+          document.execCommand('insertText', false, text);
+        },
+      ];
+      for (const run of strategies) {
+        box.focus();
+        await sleep(20);
+        selectAll(); // 先全選既有內容（含自動帶入的 mention）→ 下一步「取代」= 先清空再輸入
+        try {
+          run();
+        } catch (_) {}
+        await sleep(80);
+        if (strip(box.textContent) === want) return;
+      }
+    },
     replyBox(target) {
       const box =
         target.closest('div[contenteditable="true"][role="textbox"][data-lexical-editor="true"]') ||
@@ -438,44 +513,71 @@ const PLATFORMS = {
       return null;
     },
     targetComment(box) {
-      // 正在回覆的留言 = DOM 順序上「位於回覆框之前、離它最近」的 article
+      // DOM 順序上「位於回覆框之前、離它最近」的留言 article
       let article = null;
       for (const a of document.querySelectorAll('[role="article"]')) {
         if (a.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING) article = a;
       }
-      if (!article) return null;
-      const author = fbAuthor(article);
-      const text = fbText(article, author);
-      if (!text) return null;
-      return { author, text };
+      // 分流「回覆某留言」vs「回覆貼文本身」：貼文本身不是 [role="article"]（只有留言是），
+      // 若一律取「最近的前一則 article」，貼文底部的留言框會誤判成回覆最後一則留言（回報的 bug）。
+      // 最可靠的訊號是 placeholder 語意：回覆某留言的框寫「…回覆／Reply」；貼文層級的留言框寫
+      //「…回答／留言／Comment」但「不含回覆」。（FB 的容器結構與亂碼 class 常變動，且貼文層級留言框
+      // 與留言可能同屬一個不含貼文內文的容器，故不能靠結構/共同祖先判斷。）
+      const al = `${box.getAttribute('aria-label') || ''} ${box.getAttribute('aria-placeholder') || ''}`;
+      let isReply;
+      if (!article) {
+        isReply = false; // 前面沒有任何留言 → 必為「貼文本身」的留言框
+      } else if (fbHasKw(al, FB_KW.reply)) {
+        isReply = true; // placeholder 明確為「回覆」→ 回覆該留言
+      } else if (al.trim()) {
+        isReply = false; // 有 placeholder 但不含「回覆」（回答／留言／comment）→ 回覆貼文本身
+      } else {
+        isReply = !!box.closest('[role="article"]'); // 無 placeholder → 結構後備：框在留言 article 內才算回覆
+      }
+      if (isReply) {
+        const author = fbAuthor(article);
+        const text = fbText(article, author);
+        if (!text) return null;
+        return { author, text };
+      }
+      return fbPostComment(); // 回覆貼文本身（{author,text}；無內文時 null → 中止產生）
     },
     composer(box) {
       return box.closest('form') || box.parentElement;
     },
     context() {
+      // 頁面層級脈絡＝貼文本身（非留言）。貼文內文以 story_message 為準；先前用「最外層 article」
+      // 會把第一則留言誤當成貼文（貼文本身並非 [role="article"]）。
+      let title = (document.title || '').replace(/\s*[|\-–]\s*Facebook\s*$/i, '').trim();
+      let owner = '';
+      const body = fbPostText();
+      if (body) {
+        title = body.slice(0, 120);
+        owner = fbPostAuthor();
+        return { title, owner };
+      }
+      // 後備（無 story_message，如純圖片貼文）：沿用「最外層 article」推測
       const articles = [...document.querySelectorAll('[role="article"]')];
       let best = null;
       let bestDepth = Infinity;
       for (const a of articles) {
         let d = 0;
-        let p = a.parentElement;
-        while (p) {
+        for (let p = a.parentElement; p; p = p.parentElement) {
           if (p.matches && p.matches('[role="article"]')) d++;
-          p = p.parentElement;
         }
         if (d < bestDepth) {
           bestDepth = d;
           best = a;
         }
       }
-      const owner = best ? fbAuthor(best) : '';
-      let title = (document.title || '').replace(/\s*[|\-–]\s*Facebook\s*$/i, '').trim();
       if (best) {
-        const body = fbText(best, owner);
-        if (body) title = body.slice(0, 120);
+        owner = fbAuthor(best);
+        const b = fbText(best, owner);
+        if (b) title = b.slice(0, 120);
       }
       return { title, owner };
     },
+
     pageKey() {
       const u = new URL(location.href);
       const q = u.searchParams;
