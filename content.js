@@ -440,12 +440,61 @@ const PLATFORMS = {
       return box.closest('ytd-commentbox') || box.closest('#reply-dialog') || box.parentElement;
     },
     context() {
+      // Shorts：不可用 ytd-watch-metadata。SPA 從一般影片切到 Shorts 時，ytd-watch-flexy／
+      // ytd-watch-metadata 仍留在 DOM（只是隱藏），其 h1 還是「上一支影片」的標題，會抓到前一次
+      // 看的影片標題（回報的 bug）。改以「網址的短影音 id」為準，從正在播放的那一則 reel 子樹取標題。
+      const path = location.pathname;
+      if (path === '/shorts' || path.startsWith('/shorts/')) {
+        return this.shortsContext((path.match(/\/shorts\/([\w-]+)/) || [])[1]);
+      }
       const t = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
       const title = (t?.textContent || document.title.replace(/ - YouTube$/, '')).trim();
       const a = document.querySelector(
         'ytd-video-owner-renderer #channel-name a, #owner #channel-name a'
       );
       return { title, owner: cleanText(a?.textContent) };
+    },
+    shortsContext(shortId) {
+      // 只採信「能對應目前網址 id」的來源，避免 SPA 換片瞬間讀到上一支的標題／頻道（回報 bug 的成因）。
+      // 播放器標題連結的 href 內含短影音 id，是唯一可自我驗證的錨點；由它往上鎖定正在播放的那一則 reel，
+      // 標題與頻道都只從「這一則 reel」取。（疊層標題／頻道本身不帶 id，若不經 id 確認，換片瞬間仍會抓上一支。）
+      const idLink = shortId
+        ? document.querySelector(`a.ytp-title-link[href*="/shorts/${shortId}"]`)
+        : document.querySelector('#shorts-player a.ytp-title-link') ||
+          document.querySelector('a.ytp-title-link'); // 極少數 /shorts 無 id：退回作用中播放器的標題連結
+      const reel =
+        idLink?.closest('ytd-reel-video-renderer') ||
+        document.querySelector('#shorts-player')?.closest('ytd-reel-video-renderer') ||
+        document.querySelector('ytd-reel-video-renderer[is-active]') ||
+        null;
+      // reel 是否已鎖定到目前這支（標題連結落在其中）；未鎖定時不採信疊層標題／頻道，改用網頁層後備。
+      const verified = !!(idLink && reel && reel.contains(idLink));
+
+      // 標題連結本身已由 href 的 id 驗證，直接採用；否則才用同一 reel 的疊層標題（僅在已鎖定時）。
+      let title = cleanText(idLink?.textContent);
+      if (!title && verified) {
+        title = cleanText(
+          reel.querySelector(
+            'yt-shorts-video-title-view-model h2, .ytShortsVideoTitleViewModelShortsVideoTitle'
+          )?.textContent
+        );
+      }
+      if (!title) {
+        // 後備（沒有 id 錨點時）：說明面板 → document.title。寧可較不精準，也不用「上一支影片」的殘留節點。
+        title =
+          cleanText(
+            document.querySelector(
+              'ytd-video-description-header-renderer #title yt-formatted-string'
+            )?.textContent
+          ) || document.title.replace(/\s*[-–]\s*YouTube.*$/i, '').trim();
+      }
+
+      // 頻道：只在 reel 已用 id 連結鎖定時才採信（否則換片瞬間會拿到上一支的頻道）。
+      const ownerEl = verified
+        ? reel.querySelector('.ytReelChannelBarViewModelChannelName a') ||
+          reel.querySelector('yt-reel-channel-bar-view-model a[href*="/@"]')
+        : null;
+      return { title, owner: cleanText(ownerEl?.textContent) };
     },
     pageKey() {
       return new URLSearchParams(location.search).get('v') || location.pathname;
